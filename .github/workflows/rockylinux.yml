@@ -1,0 +1,53 @@
+name: Rocky Linux
+
+on:
+  pull_request:
+  # github has yet to figure out how to do fast-forward merges without changing the commit hash
+  # so we need to rebuild from main to get the correct hash
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: docker.io/rockylinux/rockylinux:8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install build deps
+        run: |
+          dnf install -y python3.12-pip gcc-toolset-14 git cmake
+          pip3.12 install meson ninja
+
+      - name: configure
+        run: |
+          source /opt/rh/gcc-toolset-14/enable
+          meson setup --prefix=/root/s3cpp_install --strip --prefer-static --wrap-mode=forcefallback --buildtype=release -Db_lto=true build
+
+      - name: compile
+        run: |
+          source /opt/rh/gcc-toolset-14/enable
+          meson compile -C build
+
+      - name: test
+        run: |
+          source /opt/rh/gcc-toolset-14/enable
+          meson test -C build
+
+      - name: install
+        run: |
+          source /opt/rh/gcc-toolset-14/enable
+          meson install -C build
+
+      - name: upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: tools
+          path: /root/s3cpp_install/bin/*
+          if-no-files-found: error

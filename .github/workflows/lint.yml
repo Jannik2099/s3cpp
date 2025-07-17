@@ -1,0 +1,30 @@
+name: lint
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clang-tidy:
+    runs-on: ubuntu-latest
+    container: ghcr.io/jannik2099/pms-utils-gentoo-ci:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install dependencies
+        run: |
+          emerge botan liburing pugixml boost
+
+      - name: configure
+        run: |
+          . /etc/profile
+          CC=clang CXX=clang++ meson setup build
+
+      - name: analyze
+        run: |
+          . /etc/profile
+          ninja -C build clang-tidy

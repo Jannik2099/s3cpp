@@ -1,0 +1,56 @@
+diff --git a/meson.build b/meson.build
+new file mode 100644
+index 0000000..095c92d
+--- /dev/null
++++ b/meson.build
+@@ -0,0 +1,50 @@
++project(
++    'botan',
++    version: '3.8.1',
++)
++
++version = meson.project_version()
++build_root = meson.project_build_root()
++
++py_exe = import('python').find_installation()
++
++#configure botan at configure time, so far so good
++run_command(
++    [
++        py_exe,
++        files('configure.py'),
++        '--build-tool=ninja',
++        '--build-targets=static',
++        '--disable-deprecated-features',
++        f'--with-build-dir=@build_root@',
++        '--without-documentation',
++        f'--prefix=@build_root@',
++        '--includedir=include',
++        '--libdir=lib',
++    ],
++    check: true,
++)
++
++# this is mildly hacky:
++# we wrap the botan compilation in a custom_target
++# and provide one of the install locations as an output so that ninja's dependency tracking works
++botan_tgt = custom_target(
++    'build_botan',
++    command: ['ninja', '-C', f'@build_root@', 'install'],
++    output: 'lib',
++)
++
++# add botan_tgt as a source to inject the dependency
++# and manually specify the locations
++# we can't use include_directories / link_with here, as we have no way of forming the objects
++botan_dep = declare_dependency(
++    link_args: f'@build_root@/lib/libbotan-3.a',
++    compile_args: ['-isystem', f'@build_root@/include/botan-3/'],
++    sources: botan_tgt,
++).partial_dependency(
++    compile_args: true,
++    link_args: true,
++)
++# and then discard the bogus source so that we don't attempt to link against it
++
++meson.override_dependency('botan-3', botan_dep)

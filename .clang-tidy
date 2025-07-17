@@ -1,0 +1,6 @@
+Checks: "-*, bugprone-*, cppcoreguidelines-*, -cppcoreguidelines-avoid-magic-numbers,  -cppcoreguidelines-non-private-member-variables-in-classes, misc-*, -misc-non-private-member-variables-in-classes, -misc-no-recursion, modernize-*, -modernize-use-trailing-return-type, performance-*, portability-*, readability-*, -readability-magic-numbers, -readability-avoid-nested-conditional-operator, clang-*"
+HeaderFilterRegex: '.*\.hpp'
+FormatStyle: "file"
+ExtraArgsBefore: ["-DS3CPP_CLANG_TIDY", "-fno-caret-diagnostics"]
+CheckOptions:
+  misc-include-cleaner.IgnoreHeaders: "boost/.*/(impl|detail)/.*;boost/.*_fwd.hpp"
