@@ -105,6 +105,7 @@ worker(std::shared_ptr<const s3cpp::aws::s3::Client> client, std::string bucket,
        std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
        std::shared_ptr<Metrics> stats, std::shared_ptr<boost::asio::stream_file> output_file_stream) {
     static std::atomic<std::size_t> workers_running_op;
+    static std::mutex stream_mutex;
 
     while (true) {
         {
@@ -167,7 +168,9 @@ worker(std::shared_ptr<const s3cpp::aws::s3::Client> client, std::string bucket,
                     std::string key = object.Key.value();
                     key.push_back('\n');
                     const boost::asio::const_buffer buf{key.data(), key.size()};
+                    stream_mutex.lock();
                     co_await output_file_stream->async_write_some(buf);
+                    stream_mutex.unlock();
                 }
                 {
                     const std::scoped_lock lock{*queue_mutex};
