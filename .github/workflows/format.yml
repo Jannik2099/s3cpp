@@ -34,7 +34,7 @@ jobs:
       - name: configure
         run: |
           . /etc/profile
-          meson setup -Dtest=true build
+          meson setup build
 
       - name: check
         run: |
