@@ -22,15 +22,26 @@ add_project_arguments(
     ),
     language: 'cpp',
 )
-add_project_arguments('-DBOOST_ASIO_HAS_IO_URING', language: 'cpp')
+add_project_arguments(
+    '-DBOOST_ASIO_HAS_IO_URING',
+    language: 'cpp',
+)
 
-uring_dep = dependency('liburing', include_type: 'system', static: prefer_static)
+uring_dep = dependency(
+    'liburing',
+    include_type: 'system',
+    static: prefer_static,
+)
 openssl_dep = dependency(
     'openssl',
     include_type: 'system',
     static: prefer_static,
 )
-botan_dep = dependency('botan-3', include_type: 'system', static: prefer_static)
+botan_dep = dependency(
+    'botan-3',
+    include_type: 'system',
+    static: prefer_static,
+)
 pugixml_dep = dependency(
     'pugixml',
     include_type: 'system',
@@ -57,11 +68,16 @@ if not boost_dep.found()
     ] + boost_modules
     cmake_options = cmake.subproject_options()
     cmake_options.add_cmake_defines(
-        {'BOOST_INCLUDE_LIBRARIES': ';'.join(boost_components)},
+        {
+            'BOOST_INCLUDE_LIBRARIES': ';'.join(boost_components),
+        },
     )
     cmake_options.append_compile_args('c', '-w')
     cmake_options.append_compile_args('cpp', '-w')
-    boost_cmake_dep = cmake.subproject('boost', options: cmake_options)
+    boost_cmake_dep = cmake.subproject(
+        'boost',
+        options: cmake_options,
+    )
 
     boost_cmake_libs = []
     foreach component : boost_components
@@ -71,7 +87,9 @@ if not boost_dep.found()
         )
     endforeach
 
-    boost_dep = declare_dependency(dependencies: boost_cmake_libs)
+    boost_dep = declare_dependency(
+        dependencies: boost_cmake_libs,
+    )
 endif
 
 subdir('include')

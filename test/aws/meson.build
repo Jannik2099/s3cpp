@@ -4,5 +4,12 @@ fs = import('fs')
 
 foreach testfile : tests
     stem = fs.stem(testfile)
-    test(stem, executable(stem, testfile, dependencies: [self_dep]))
+    test(
+        stem,
+        executable(
+            stem,
+            testfile,
+            dependencies: [self_dep],
+        ),
+    )
 endforeach
