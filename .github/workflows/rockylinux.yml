@@ -17,6 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     container: docker.io/rockylinux/rockylinux:9
 
+    env:
+      PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
+      CFLAGS: -march=x86-64-v3 -O3 -flto=auto -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
+      CXXFLAGS: -march=x86-64-v3 -O3 -flto=auto -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
+      LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=auto
+
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +43,7 @@ jobs:
       - name: configure
         run: |
           source /opt/rh/gcc-toolset-14/enable
-          PKG_CONFIG_PATH=/usr/local/lib/pkgconfig meson setup --prefix=/root/s3cpp_install --strip --prefer-static --wrap-mode=forcefallback --buildtype=release -Db_lto=true build
+          meson setup --prefix=/root/s3cpp_install --strip --prefer-static --wrap-mode=forcefallback --buildtype=release -Db_lto=true -Db_pie=true build
 
       - name: compile
         run: |
