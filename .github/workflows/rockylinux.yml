@@ -15,19 +15,18 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: docker.io/rockylinux/rockylinux:9
+    container: docker.io/rockylinux/rockylinux:10
 
     steps:
       - uses: actions/checkout@v4
 
       - name: install build deps
         run: |
-          dnf install -y python3.12-pip gcc-toolset-14 git cmake xz
+          dnf install -y python3-pip gcc-c++ libstdc++ git cmake xz
           pip3.12 install meson ninja
 
       - name: install botan
         run: |
-          source /opt/rh/gcc-toolset-14/enable
           cd
           curl -s -L https://botan.randombit.net/releases/Botan-3.8.1.tar.xz | tar --xz --extract
           cd Botan-3.8.1
@@ -36,22 +35,18 @@ jobs:
 
       - name: configure
         run: |
-          source /opt/rh/gcc-toolset-14/enable
           PKG_CONFIG_PATH=/usr/local/lib/pkgconfig meson setup --prefix=/root/s3cpp_install --strip --prefer-static --wrap-mode=forcefallback --buildtype=release -Db_lto=true build
 
       - name: compile
         run: |
-          source /opt/rh/gcc-toolset-14/enable
           meson compile -C build
 
       - name: test
         run: |
-          source /opt/rh/gcc-toolset-14/enable
           meson test -C build
 
       - name: install
         run: |
-          source /opt/rh/gcc-toolset-14/enable
           meson install -C build
 
       - name: upload

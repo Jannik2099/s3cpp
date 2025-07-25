@@ -12,7 +12,7 @@ cxx = meson.get_compiler('cpp')
 exe_link_args = []
 prefer_static = get_option('prefer_static')
 if prefer_static
-    exe_link_args += ['-static-libstdc++', '-static-libgcc']
+    #exe_link_args += ['-static-libstdc++', '-static-libgcc']
 endif
 
 add_project_arguments(
