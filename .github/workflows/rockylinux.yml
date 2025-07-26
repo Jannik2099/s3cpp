@@ -23,14 +23,24 @@ jobs:
       CFLAGS: -march=x86-64-v3 -O3 -flto=auto -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
       CXXFLAGS: -march=x86-64-v3 -O3 -flto=auto -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
       LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=auto
+      CC: ccache gcc
+      CXX: ccache g++
 
     steps:
       - uses: actions/checkout@v4
 
       - name: install build deps
         run: |
-          dnf install -y python3.12-pip gcc-toolset-14 git cmake xz
+          dnf install -y python3.12-pip gcc-toolset-14 git cmake xz jq
           pip3.12 install meson ninja
+
+      - name: install ccache
+        run: |
+          CCACHE_URL="$(curl -s https://api.github.com/repos/ccache/ccache/releases/latest | jq --raw-output '.assets[] | select(.name | test("linux-x86_64.tar.xz$")) | .browser_download_url')"
+          curl -s -L "${CCACHE_URL}" | tar --xz --extract
+          cp ccache-*-linux-x86_64/ccache /usr/local/bin/ccache
+
+      - uses: hendrikmuhs/ccache-action@v1.2
 
       - name: install botan
         run: |
