@@ -20,18 +20,26 @@ jobs:
 
     env:
       PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
-      CFLAGS: -march=x86-64-v3 -O3 -flto=auto -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
-      CXXFLAGS: -march=x86-64-v3 -O3 -flto=auto -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
-      LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=auto
-      CC: ccache gcc
-      CXX: ccache g++
+      CFLAGS: -march=x86-64-v3 -O3 -flto=thin -faddrsig -ffunction-sections -fdata-sections -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
+      LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=thin -Wl,--gc-sections -Wl,--icf=safe -fuse-ld=lld
+      CC: ccache clang
+      CXX: ccache clang++
+      AR: llvm-ar
+      NM: llvm-nm
+      RANLIB: llvm-ranlib
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: setup cflags
+        run: |
+          echo "CXXFLAGS=${CFLAGS}" >> "${GITHUB_ENV}"
+
       - name: install build deps
         run: |
-          dnf install -y python3.12-pip gcc-toolset-14 git cmake xz jq
+          dnf -y install python3.12-pip gcc-toolset-14 git cmake xz jq 'dnf-command(copr)'
+          dnf -y copr enable @fedora-llvm-team/llvm-snapshots centos-stream-9-x86_64
+          dnf -y install llvm20-toolset
           pip3.12 install meson ninja
 
       - name: install ccache
@@ -54,7 +62,7 @@ jobs:
       - name: configure
         run: |
           source /opt/rh/gcc-toolset-14/enable
-          meson setup --prefix=/root/s3cpp_install --strip --prefer-static --wrap-mode=forcefallback --buildtype=release -Db_lto=true -Db_pie=true build
+          meson setup --prefix=/root/s3cpp_install --strip --prefer-static --wrap-mode=forcefallback --buildtype=release -Db_lto=true -Db_lto_mode=thin -Db_pie=true build
 
       - name: compile
         run: |
