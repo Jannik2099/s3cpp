@@ -16,9 +16,11 @@
 #include <boost/asio/co_spawn.hpp> // IWYU pragma: keep
 #include <boost/asio/detached.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/asio/stream_file.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/thread_pool.hpp>
+#include <boost/asio/write.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -105,7 +107,7 @@ worker(std::shared_ptr<const s3cpp::aws::s3::Client> client, std::string bucket,
        std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
        std::shared_ptr<Metrics> stats, std::shared_ptr<boost::asio::stream_file> output_file_stream) {
     static std::atomic<std::size_t> workers_running_op;
-    static std::mutex stream_mutex;
+    using boost::asio::buffer_literals::operator""_buf;
 
     while (true) {
         {
@@ -158,19 +160,26 @@ worker(std::shared_ptr<const s3cpp::aws::s3::Client> client, std::string bucket,
                     co_await list_prefix(client, bucket, new_prefix.Prefix, std::move(continuation_token));
                 continuation_token = std::move(res.NextContinuationToken);
 
-                for (const auto &object : res.Contents.value_or(std::vector<s3cpp::aws::s3::Object>{})) {
-                    if (!object.Key.has_value()) {
-                        std::println(std::cerr, "ERROR received object without key, ETag {}",
-                                     object.ETag.value_or(""));
-                        continue;
+                {
+                    std::string string_buf;
+                    for (const auto &object : res.Contents.value_or(std::vector<s3cpp::aws::s3::Object>{})) {
+                        if (!object.Key.has_value()) {
+                            std::println(std::cerr, "ERROR received object without key, ETag {}",
+                                         object.ETag.value_or(""));
+                            continue;
+                        }
+                        string_buf.reserve(string_buf.size() + object.Key->size() + 1);
                     }
-                    std::string key = object.Key.value();
-                    key.push_back('\n');
-                    const boost::asio::const_buffer buf{key.data(), key.size()};
-                    stream_mutex.lock();
-                    co_await output_file_stream->async_write_some(buf);
-                    stream_mutex.unlock();
+                    for (const auto &object : res.Contents.value_or(std::vector<s3cpp::aws::s3::Object>{})) {
+                        if (object.Key.has_value()) {
+                            string_buf += *object.Key;
+                            string_buf += '\n';
+                        }
+                    }
+                    const boost::asio::const_buffer buf{string_buf.data(), string_buf.size()};
+                    co_await boost::asio::async_write(*output_file_stream, buf);
                 }
+
                 {
                     const std::scoped_lock lock{*queue_mutex};
                     stats->total_objects_found +=
@@ -284,8 +293,9 @@ int main(int argc, char **argv) {
         }
     }};
 
+    const auto file_strand = boost::asio::make_strand(pool);
     const auto output_file_stream = std::make_shared<boost::asio::stream_file>(
-        pool, options.output_file,
+        file_strand, options.output_file,
         boost::asio::stream_file::write_only | boost::asio::stream_file::create |
             boost::asio::stream_file::truncate);
     for (std::size_t i = 0; i < options.max_ops_in_flight; i++) {
