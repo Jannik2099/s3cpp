@@ -92,9 +92,19 @@ jobs:
           source /opt/rh/gcc-toolset-14/enable
           meson install -C build
 
-      - name: upload
+      - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: tools
           path: /root/s3cpp_install/bin/*
           if-no-files-found: error
+
+      - name: upload nightly builds
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+        if: github.ref_name == 'main' && github.ref_type == 'branch'
+        with:
+          prerelease: true
+          name: nightly
+          tag_name: nightly
+          files: /root/s3cpp_install/bin/*
+          fail_on_unmatched_files: true
