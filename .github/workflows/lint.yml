@@ -9,6 +9,7 @@ concurrency:
 
 jobs:
   clang-tidy:
+    name: clang-tidy
     runs-on: ubuntu-latest
     container: ghcr.io/jannik2099/pms-utils-gentoo-ci:latest
 

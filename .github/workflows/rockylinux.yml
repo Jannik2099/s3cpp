@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   build:
+    name: Rocky Linux
     runs-on: ubuntu-latest
     container: docker.io/rockylinux/rockylinux:9
 

@@ -9,8 +9,8 @@ concurrency:
 
 jobs:
   prettier:
+    name: prettier
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -21,6 +21,7 @@ jobs:
       - run: npx prettier --check .
 
   clang-format:
+    name: clang-format
     runs-on: ubuntu-latest
     container: ghcr.io/jannik2099/pms-utils-gentoo-ci:latest
 
@@ -41,7 +42,8 @@ jobs:
           . /etc/profile
           ninja -C build clang-format-check
 
-  meson:
+  meson-format:
+    name: meson format
     runs-on: ubuntu-latest
     container: ghcr.io/jannik2099/pms-utils-gentoo-ci:latest
 
