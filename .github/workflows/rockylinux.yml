@@ -21,7 +21,7 @@ jobs:
     env:
       PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
       CFLAGS: -march=x86-64-v3 -O3 -flto=thin -faddrsig -ffunction-sections -fdata-sections -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
-      LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=thin -Wl,--gc-sections -Wl,--icf=safe -fuse-ld=lld
+      LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=thin -Wl,--gc-sections -Wl,--icf=safe -fuse-ld=lld -Wl,--thinlto-cache-dir=/thinlto_cache -Wl,--thinlto-cache-policy=cache_size_bytes=500m
       CC: ccache clang
       CXX: ccache clang++
       AR: llvm-ar
@@ -30,6 +30,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: thinlto cache
+        uses: actions/cache@v4
+        with:
+          path: /thinlto_cache
+          key: thinlto_cache-${{ github.run_id }}
+          restore-keys: thinlto_cache
+
+      - name: meson wrap cache
+        uses: actions/cache@v4
+        with:
+          path: subprojects/packagecache
+          key: meson_wraps-${{ hashFiles('subprojects/*.wrap') }}
 
       - name: setup cflags
         run: |
