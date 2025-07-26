@@ -89,7 +89,8 @@ meta::crt<boost::asio::awaitable<
 Client::list_objects_v2(ListObjectsV2Parameters parameters, boost::beast::http::fields headers) const {
     std::string query{"list-type=2"};
     if (parameters.ContinuationToken.has_value()) {
-        query.append(std::format("&continuation-token={}", parameters.ContinuationToken.value()));
+        query.append(std::format("&continuation-token={}",
+                                 iam::urlencode_query(parameters.ContinuationToken.value())));
     }
     if (parameters.Delimiter.has_value()) {
         query.append(std::format("&delimiter={}", iam::urlencode_query(parameters.Delimiter.value())));
