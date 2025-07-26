@@ -7,7 +7,7 @@
 
 #include <atomic>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/stream_file.hpp>
+#include <boost/asio/posix/stream_descriptor.hpp>
 #include <cstddef>
 #include <memory>
 #include <mutex>
@@ -22,7 +22,7 @@ private:
     aws::s3::Client client;
     std::string bucket;
     std::shared_ptr<Metrics> stats;
-    boost::asio::stream_file output_file_stream;
+    boost::asio::posix::stream_descriptor output_file_stream;
 
     PrefixQueue prefix_queue;
     std::mutex queue_mutex;
@@ -38,7 +38,7 @@ private:
 
 public:
     [[nodiscard]] Worker(aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> stats,
-                         boost::asio::stream_file output_file_stream);
+                         boost::asio::posix::stream_descriptor output_file_stream);
 
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>> work();
 };

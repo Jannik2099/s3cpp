@@ -22,16 +22,7 @@ add_project_arguments(
     ),
     language: 'cpp',
 )
-add_project_arguments(
-    '-DBOOST_ASIO_HAS_IO_URING',
-    language: 'cpp',
-)
 
-uring_dep = dependency(
-    'liburing',
-    include_type: 'system',
-    static: prefer_static,
-)
 openssl_dep = dependency(
     'openssl',
     include_type: 'system',

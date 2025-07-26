@@ -8,8 +8,8 @@
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/steady_timer.hpp>
-#include <boost/asio/stream_file.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/write.hpp>
@@ -181,7 +181,7 @@ meta::crt<boost::asio::awaitable<void>> Worker::work() {
 }
 
 Worker::Worker(aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> stats,
-               boost::asio::stream_file output_file_stream)
+               boost::asio::posix::stream_descriptor output_file_stream)
     : client{std::move(client)}, bucket{std::move(bucket)}, stats{std::move(stats)},
       output_file_stream{std::move(output_file_stream)} {
     prefix_queue.emplace(PrefixQueueEntry{.depth = 0, .paths = {{}}});
