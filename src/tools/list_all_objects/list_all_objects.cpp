@@ -152,11 +152,10 @@ worker(std::shared_ptr<const s3cpp::aws::s3::Client> client, std::string bucket,
 
             std::optional<std::string> continuation_token;
             while (true) {
-
                 const std::size_t depth = std::ranges::count(new_prefix.Prefix.value_or(""), '/');
                 stats->ops_in_flight++;
-                s3cpp::aws::s3::ListBucketResult res = co_await list_prefix(
-                    client, bucket, std::move(new_prefix.Prefix), std::move(continuation_token));
+                s3cpp::aws::s3::ListBucketResult res =
+                    co_await list_prefix(client, bucket, new_prefix.Prefix, std::move(continuation_token));
                 continuation_token = std::move(res.NextContinuationToken);
 
                 for (const auto &object : res.Contents.value_or(std::vector<s3cpp::aws::s3::Object>{})) {
