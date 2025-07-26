@@ -13,16 +13,19 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp> // IWYU pragma: keep
 #include <boost/asio/detached.hpp>
+#include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/strand.hpp>
-#include <boost/asio/stream_file.hpp>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
 #include <boost/program_options/value_semantic.hpp>
 #include <boost/program_options/variables_map.hpp>
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
+#include <fcntl.h>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -134,10 +137,14 @@ int main(int argc, char **argv) {
     }};
 
     const auto file_strand = boost::asio::make_strand(pool);
-    boost::asio::stream_file output_file_stream{file_strand, options.output_file,
-                                                boost::asio::stream_file::write_only |
-                                                    boost::asio::stream_file::create |
-                                                    boost::asio::stream_file::truncate};
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+    const auto output_file_fd = open(options.output_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC,
+                                     S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
+    if (output_file_fd == -1) {
+        std::println(std::cerr, "failed to open output file {}: {}", options.output_file, strerror(errno));
+        return 1;
+    }
+    boost::asio::posix::stream_descriptor output_file_stream{file_strand, output_file_fd};
 
     Worker worker{client, options.bucket, metrics, std::move(output_file_stream)};
 
