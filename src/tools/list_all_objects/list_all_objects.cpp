@@ -183,12 +183,12 @@ worker(std::shared_ptr<const s3cpp::aws::s3::Client> client, std::string bucket,
                         std::move(res.CommonPrefixes).value_or(std::vector<s3cpp::aws::s3::CommonPrefix>{}));
                     stats->ops_in_flight--;
                     stats->total_ops++;
-                    workers_running_op--;
                 }
                 if (!continuation_token.has_value()) {
                     break;
                 }
             }
+            workers_running_op--;
         }
     }
 }
