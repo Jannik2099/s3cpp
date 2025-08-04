@@ -4,7 +4,6 @@
 #include "s3cpp/aws/s3/types.hpp"
 #include "s3cpp/meta.hpp"
 
-#include <algorithm>
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/buffer.hpp>
@@ -24,6 +23,7 @@
 #include <print>
 #include <span>
 #include <string>
+#include <tuple>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -62,7 +62,8 @@ meta::crt<boost::asio::awaitable<bool>> Worker::is_done() {
     }
 }
 
-meta::crt<boost::asio::awaitable<std::optional<aws::s3::CommonPrefix>>> Worker::get_next_prefix() {
+meta::crt<boost::asio::awaitable<std::optional<std::tuple<aws::s3::CommonPrefix, std::size_t>>>>
+Worker::get_next_prefix() {
     const std::scoped_lock lock{queue_mutex};
     const PrefixQueueEntry *top{};
     while (true) {
@@ -78,7 +79,7 @@ meta::crt<boost::asio::awaitable<std::optional<aws::s3::CommonPrefix>>> Worker::
             break;
         }
     }
-    const aws::s3::CommonPrefix ret = std::move(top->paths.back());
+    const auto ret = std::make_tuple(std::move(top->paths.back()), top->depth);
     top->paths.pop_back();
     stats->total_queue_length--;
     workers_running_op++;
@@ -111,12 +112,22 @@ Worker::list_one(std::optional<std::string> prefix, std::optional<std::string> c
     co_return aws::s3::ListBucketResult{};
 }
 
-meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPrefix prefix) {
+meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPrefix prefix,
+                                                               std::size_t depth) {
     std::optional<std::string> continuation_token;
     while (true) {
-        const std::size_t depth = std::ranges::count(prefix.Prefix.value_or(""), '/');
         stats->ops_in_flight++;
         aws::s3::ListBucketResult res = co_await list_one(prefix.Prefix, std::move(continuation_token));
+
+        if (res.NextContinuationToken.has_value() && res.ContinuationToken.has_value() &&
+            res.ContinuationToken == res.NextContinuationToken) {
+            std::println(std::cerr, "WARN prefix {} yielded repeated ContinuationToken, skipping",
+                         prefix.Prefix.value_or("<empty prefix>"));
+            stats->ops_in_flight--;
+            workers_running_op--;
+            co_return;
+        }
+
         continuation_token = std::move(res.NextContinuationToken);
 
         co_await write_objects(res.Contents.value_or(std::vector<aws::s3::Object>{}));
@@ -127,7 +138,7 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
             stats->total_queue_length +=
                 res.CommonPrefixes.value_or(std::vector<aws::s3::CommonPrefix>{}).size();
             prefix_queue.emplace(
-                depth, std::move(res.CommonPrefixes).value_or(std::vector<aws::s3::CommonPrefix>{}));
+                depth + 1, std::move(res.CommonPrefixes).value_or(std::vector<aws::s3::CommonPrefix>{}));
             stats->ops_in_flight--;
             stats->total_ops++;
         }
@@ -172,11 +183,11 @@ meta::crt<boost::asio::awaitable<void>> Worker::work() {
         if (co_await is_done()) {
             co_return;
         }
-        const std::optional<aws::s3::CommonPrefix> next_prefix = co_await get_next_prefix();
+        const auto next_prefix = co_await get_next_prefix();
         if (!next_prefix.has_value()) {
             continue;
         }
-        co_await process_prefix(*next_prefix);
+        co_await process_prefix(std::get<0>(*next_prefix), std::get<1>(*next_prefix));
     }
 }
 
