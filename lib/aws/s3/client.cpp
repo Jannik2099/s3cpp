@@ -28,7 +28,9 @@ parse_list_objects_v2(std::string &body) {
     // std::println("{}", body);
     ListBucketResult ret;
     pugi::xml_document document;
-    if (const pugi::xml_parse_status status = document.load_buffer_inplace(body.data(), body.size()).status;
+    if (const pugi::xml_parse_status status =
+            document.load_buffer_inplace(body.data(), body.size(), pugi::parse_default, pugi::encoding_utf8)
+                .status;
         status != pugi::xml_parse_status::status_ok) {
         return std::unexpected{status};
     }
@@ -101,9 +103,12 @@ Client::list_objects_v2(ListObjectsV2Parameters parameters, boost::beast::http::
     if (parameters.FetchOwner) {
         query.append("&fetch-owner=true");
     }
-    query.append(std::format("&max-keys={}", parameters.MaxKeys));
     if (parameters.Prefix.has_value()) {
-        query.append(std::format("&prefix={}", iam::urlencode_query(parameters.Prefix.value())));
+        if (parameters.EncodingType.value_or("") == "url") {
+            query.append(std::format("&prefix={}", parameters.Prefix.value()));
+        } else {
+            query.append(std::format("&prefix={}", iam::urlencode_query(parameters.Prefix.value())));
+        }
     }
     if (parameters.StartAfter.has_value()) {
         query.append(std::format("&start-after={}", parameters.StartAfter.value()));

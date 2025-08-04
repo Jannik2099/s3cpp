@@ -14,6 +14,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <tuple>
 
 namespace s3cpp::tools::list_all_objects {
 
@@ -29,10 +30,13 @@ private:
     std::atomic<std::size_t> workers_running_op;
 
     [[nodiscard]] meta::crt<boost::asio::awaitable<bool>> is_done();
-    [[nodiscard]] meta::crt<boost::asio::awaitable<std::optional<aws::s3::CommonPrefix>>> get_next_prefix();
+    [[nodiscard]] meta::crt<
+        boost::asio::awaitable<std::optional<std::tuple<aws::s3::CommonPrefix, std::size_t>>>>
+    get_next_prefix();
     [[nodiscard]] meta::crt<boost::asio::awaitable<aws::s3::ListBucketResult>>
     list_one(std::optional<std::string> prefix, std::optional<std::string> continuation_token);
-    [[nodiscard]] meta::crt<boost::asio::awaitable<void>> process_prefix(aws::s3::CommonPrefix prefix);
+    [[nodiscard]] meta::crt<boost::asio::awaitable<void>> process_prefix(aws::s3::CommonPrefix prefix,
+                                                                         std::size_t depth);
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>>
     write_objects(std::span<const aws::s3::Object> objects);
 
