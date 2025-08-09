@@ -3,6 +3,7 @@
 #include "s3cpp/aws/s3/types.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <compare>
 #include <cstddef>
 #include <functional>
@@ -26,6 +27,13 @@ struct Metrics {
     std::atomic<std::size_t> total_ops;
     std::atomic<std::size_t> total_queue_length;
     std::atomic<std::size_t> total_objects_found;
+    std::atomic<std::size_t> active_workers;
+};
+
+struct WorkerScalingConfig {
+    double scale_up_factor{};
+    double scale_down_factor{};
+    std::chrono::seconds scaling_interval{};
 };
 
 } // namespace s3cpp::tools::list_all_objects
