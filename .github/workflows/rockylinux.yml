@@ -117,6 +117,8 @@ jobs:
         with:
           prerelease: true
           name: nightly
+          body: |
+            Nightly build artifacts for commit `${{ github.sha }}`
           tag_name: nightly
           files: "*"
           fail_on_unmatched_files: true
