@@ -2,7 +2,7 @@
 #include "s3cpp/aws/iam/session.hpp"
 #include "s3cpp/aws/s3/client.hpp"
 #include "s3cpp/aws/s3/session.hpp"
-#include "worker.hpp"
+#include "worker_manager.hpp"
 
 #include <atomic>
 #include <boost/accumulators/framework/accumulator_set.hpp>
@@ -10,9 +10,6 @@
 #include <boost/accumulators/statistics/rolling_window.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/algorithm/string/trim.hpp>
-#include <boost/asio/awaitable.hpp>
-#include <boost/asio/co_spawn.hpp> // IWYU pragma: keep
-#include <boost/asio/detached.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/asio/thread_pool.hpp>
@@ -56,7 +53,10 @@ struct Options {
     std::string access_key;
     std::string secret_key;
     std::string output_file;
-    std::size_t max_ops_in_flight{};
+
+    double scale_up_factor{};
+    double scale_down_factor{};
+    std::size_t scaling_interval_seconds{};
 };
 
 [[nodiscard]] Options parse_opts(int argc, char **argv) {
@@ -72,7 +72,9 @@ struct Options {
         ("access-key-file", boost::program_options::value<std::string>(&ret.access_key)->required(), "path to access key file")
         ("secret-access-key-file", boost::program_options::value<std::string>(&ret.secret_key)->required(), "path to secret key file")
         ("output-file,o", boost::program_options::value<std::string>(&ret.output_file)->required(), "path to output file")
-        ("max-ops-in-flight", boost::program_options::value<std::size_t>(&ret.max_ops_in_flight)->default_value(100), "maximum concurrent amount of requests")
+        ("scale-up-factor", boost::program_options::value<double>(&ret.scale_up_factor)->default_value(1.2), "multiply workers by this factor when scaling up")
+        ("scale-down-factor", boost::program_options::value<double>(&ret.scale_down_factor)->default_value(0.8), "multiply workers by this factor when scaling down")
+        ("scaling-interval", boost::program_options::value<std::size_t>(&ret.scaling_interval_seconds)->default_value(1), "scaling check interval in seconds")
     ;
     // clang-format on
 
@@ -111,6 +113,12 @@ int main(int argc, char **argv) {
     const s3cpp::aws::s3::Client client{session};
     const auto metrics = std::make_shared<Metrics>();
 
+    // Create worker scaling configuration from command line options
+    const WorkerScalingConfig scaling_config{.scale_up_factor = options.scale_up_factor,
+                                             .scale_down_factor = options.scale_down_factor,
+                                             .scaling_interval =
+                                                 std::chrono::seconds{options.scaling_interval_seconds}};
+
     const std::jthread stats_thread{[metrics](const std::stop_token &token) {
         using namespace boost::accumulators;
         accumulator_set<std::size_t, stats<tag::rolling_mean>> objects_accumulator{
@@ -127,11 +135,13 @@ int main(int argc, char **argv) {
             objects_accumulator(new_objects);
             ops_accumulator(new_ops);
 
-            std::println("{} ops in flight, {} queued ops, {} total ops, {} total objects, {:.2f} objects/s, "
+            std::println("{} active workers, {} ops in flight, {} queued ops, {} total ops, {} total "
+                         "objects, {:.2f} objects/s, "
                          "{:.2f} ops/s",
-                         metrics->ops_in_flight.load(), metrics->total_queue_length.load(),
-                         metrics->total_ops.load(), metrics->total_objects_found.load(),
-                         rolling_mean(objects_accumulator), rolling_mean(ops_accumulator));
+                         metrics->active_workers.load(), metrics->ops_in_flight.load(),
+                         metrics->total_queue_length.load(), metrics->total_ops.load(),
+                         metrics->total_objects_found.load(), rolling_mean(objects_accumulator),
+                         rolling_mean(ops_accumulator));
             std::flush(std::cout);
         }
     }};
@@ -146,11 +156,35 @@ int main(int argc, char **argv) {
     }
     boost::asio::posix::stream_descriptor output_file_stream{file_strand, output_file_fd};
 
-    Worker worker{client, options.bucket, metrics, std::move(output_file_stream)};
+    // Create worker manager for dynamic scaling
+    WorkerManager worker_manager{client, options.bucket, metrics, std::move(output_file_stream),
+                                 pool,   scaling_config};
 
-    for (std::size_t i = 0; i < options.max_ops_in_flight; i++) {
-        boost::asio::co_spawn(pool, worker.work(), boost::asio::detached);
-    }
+    // Start initial workers
+    worker_manager.ensure_workers_spawned();
+
+    // Start scaling management thread
+    const std::jthread scaling_thread{[&worker_manager, metrics](const std::stop_token &token) {
+        using namespace boost::accumulators;
+        accumulator_set<std::size_t, stats<tag::rolling_mean>> ops_accumulator{
+            tag::rolling_window::window_size = 60};
+
+        std::size_t previous_ops = 0;
+
+        while (!token.stop_requested()) {
+            std::this_thread::sleep_for(std::chrono::seconds{1});
+
+            const std::size_t current_total_ops = metrics->total_ops.load();
+            const std::size_t new_ops = current_total_ops - previous_ops;
+            previous_ops = current_total_ops;
+
+            ops_accumulator(new_ops);
+            const double current_ops_per_second = rolling_mean(ops_accumulator);
+
+            // Adjust workers based on current performance
+            worker_manager.adjust_workers(current_ops_per_second);
+        }
+    }};
 
     pool.join();
 }
