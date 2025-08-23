@@ -79,7 +79,24 @@ struct CommonPrefix {
     BOOST_DESCRIBE_STRUCT(CommonPrefix, (), (Prefix));
 };
 
-struct ListBucketResult {
+struct ListObjectsResult {
+    std::optional<std::vector<CommonPrefix>> CommonPrefixes;
+    std::optional<std::vector<Object>> Contents;
+    std::optional<std::string> Delimiter;
+    std::optional<std::string> EncodingType;
+    bool IsTruncated{};
+    std::optional<std::string> Marker;
+    std::size_t MaxKeys{};
+    std::string Name;
+    std::optional<std::string> NextMarker;
+    std::string Prefix;
+
+    BOOST_DESCRIBE_STRUCT(ListObjectsResult, (),
+                          (CommonPrefixes, Contents, Delimiter, EncodingType, IsTruncated, Marker, MaxKeys,
+                           Name, NextMarker, Prefix));
+};
+
+struct ListObjectsV2Result {
     std::optional<std::vector<CommonPrefix>> CommonPrefixes;
     std::optional<std::vector<Object>> Contents;
     std::optional<std::string> ContinuationToken;
@@ -93,7 +110,7 @@ struct ListBucketResult {
     std::string Prefix;
     std::optional<std::string> StartAfter;
 
-    BOOST_DESCRIBE_STRUCT(ListBucketResult, (),
+    BOOST_DESCRIBE_STRUCT(ListObjectsV2Result, (),
                           (CommonPrefixes, Contents, ContinuationToken, Delimiter, EncodingType, IsTruncated,
                            KeyCount, MaxKeys, Name, NextContinuationToken, Prefix, StartAfter));
 };

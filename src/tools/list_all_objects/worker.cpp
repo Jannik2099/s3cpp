@@ -87,7 +87,7 @@ Worker::get_next_prefix() {
     co_return ret;
 }
 
-meta::crt<boost::asio::awaitable<aws::s3::ListBucketResult>>
+meta::crt<boost::asio::awaitable<aws::s3::ListObjectsV2Result>>
 Worker::list_one(std::optional<std::string> prefix, std::optional<std::string> continuation_token) {
     const std::string my_prefix = prefix.value_or("<no prefix>");
     for (int retries = 0; retries < 5; retries++) {
@@ -110,7 +110,7 @@ Worker::list_one(std::optional<std::string> prefix, std::optional<std::string> c
         co_return res.value();
     }
     std::println("no success after 5 retries on prefix {}", my_prefix);
-    co_return aws::s3::ListBucketResult{};
+    co_return aws::s3::ListObjectsV2Result{};
 }
 
 meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPrefix prefix,
@@ -118,7 +118,7 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
     std::optional<std::string> continuation_token;
     while (true) {
         stats->ops_in_flight++;
-        aws::s3::ListBucketResult res = co_await list_one(prefix.Prefix, std::move(continuation_token));
+        aws::s3::ListObjectsV2Result res = co_await list_one(prefix.Prefix, std::move(continuation_token));
 
         if (res.NextContinuationToken.has_value() && res.ContinuationToken.has_value() &&
             res.ContinuationToken == res.NextContinuationToken) {
