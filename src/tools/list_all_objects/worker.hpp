@@ -42,7 +42,7 @@ private:
     [[nodiscard]] meta::crt<
         boost::asio::awaitable<std::optional<std::tuple<aws::s3::CommonPrefix, std::size_t>>>>
     get_next_prefix();
-    [[nodiscard]] meta::crt<boost::asio::awaitable<aws::s3::ListBucketResult>>
+    [[nodiscard]] meta::crt<boost::asio::awaitable<aws::s3::ListObjectsV2Result>>
     list_one(std::optional<std::string> prefix, std::optional<std::string> continuation_token);
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>> process_prefix(aws::s3::CommonPrefix prefix,
                                                                          std::size_t depth);

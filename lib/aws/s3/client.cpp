@@ -7,6 +7,7 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/beast/http/fields.hpp> // IWYU pragma: keep
+#include <cstdint>
 #include <cstring>
 #include <expected>
 #include <format>
@@ -15,6 +16,7 @@
 #include <pugixml.hpp>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -23,10 +25,15 @@ namespace s3cpp::aws::s3 {
 
 namespace {
 
-[[nodiscard]] std::expected<ListBucketResult, pugi::xml_parse_status>
-parse_list_objects_v2(std::string &body) {
-    // std::println("{}", body);
-    ListBucketResult ret;
+enum class ListObjectsVersion : std::uint8_t { V1, V2 };
+
+template <ListObjectsVersion api_version>
+[[nodiscard]] std::expected<
+    std::conditional_t<api_version == ListObjectsVersion::V1, ListObjectsResult, ListObjectsV2Result>,
+    pugi::xml_parse_status>
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+parse_list_objects(std::string &body) {
+    std::conditional_t<api_version == ListObjectsVersion::V1, ListObjectsResult, ListObjectsV2Result> ret;
     pugi::xml_document document;
     if (const pugi::xml_parse_status status =
             document.load_buffer_inplace(body.data(), body.size(), pugi::parse_default, pugi::encoding_utf8)
@@ -54,23 +61,41 @@ parse_list_objects_v2(std::string &body) {
         }
     }
 
-    if (const char *ContinuationToken_ = node.child_value("ContinuationToken");
-        ContinuationToken_ != nullptr && std::strlen(ContinuationToken_) != 0) {
-        ret.ContinuationToken = ContinuationToken_;
-    }
-
     if (const char *Delimiter_ = node.child_value("Delimiter");
         Delimiter_ != nullptr && std::strlen(Delimiter_) != 0) {
         ret.Delimiter = Delimiter_;
     }
 
+    if constexpr (api_version == ListObjectsVersion::V1) {
+        if (const char *Marker_ = node.child_value("Marker");
+            Marker_ != nullptr && std::strlen(Marker_) != 0) {
+            ret.Marker = Marker_;
+        }
+    }
+
+    if constexpr (api_version == ListObjectsVersion::V2) {
+        if (const char *ContinuationToken_ = node.child_value("ContinuationToken");
+            ContinuationToken_ != nullptr && std::strlen(ContinuationToken_) != 0) {
+            ret.ContinuationToken = ContinuationToken_;
+        }
+    }
+
     if (const std::string_view IsTruncatedStr = node.child_value("IsTruncated"); IsTruncatedStr == "true") {
         ret.IsTruncated = true;
-        const char *NextContinuationToken_ = node.child_value("NextContinuationToken");
-        if (NextContinuationToken_ == nullptr || std::strlen(NextContinuationToken_) <= 0) {
-            throw std::runtime_error{"missing NextContinuationToken"};
+        if constexpr (api_version == ListObjectsVersion::V1) {
+            const char *NextMarker_ = node.child_value("NextMarker");
+            if (NextMarker_ == nullptr || std::strlen(NextMarker_) <= 0) {
+                throw std::runtime_error{"missing NextMarker"};
+            }
+            ret.NextMarker = NextMarker_;
         }
-        ret.NextContinuationToken = NextContinuationToken_;
+        if constexpr (api_version == ListObjectsVersion::V2) {
+            const char *NextContinuationToken_ = node.child_value("NextContinuationToken");
+            if (NextContinuationToken_ == nullptr || std::strlen(NextContinuationToken_) <= 0) {
+                throw std::runtime_error{"missing NextContinuationToken"};
+            }
+            ret.NextContinuationToken = NextContinuationToken_;
+        }
     } else if (IsTruncatedStr == "false") {
         ret.IsTruncated = false;
     } else {
@@ -84,40 +109,87 @@ parse_list_objects_v2(std::string &body) {
     return ret;
 }
 
-} // namespace
+template <ListObjectsVersion api_version>
+[[nodiscard]] std::string list_objects_prepare_query(
+    std::conditional_t<api_version == ListObjectsVersion::V1, ListObjectsParameters, ListObjectsV2Parameters>
+        parameters) {
 
-meta::crt<boost::asio::awaitable<
-    std::expected<ListBucketResult, std::variant<boost::beast::error_code, pugi::xml_parse_status>>>>
-Client::list_objects_v2(ListObjectsV2Parameters parameters, boost::beast::http::fields headers) const {
-    std::string query{"list-type=2"};
-    if (parameters.ContinuationToken.has_value()) {
-        query.append(std::format("&continuation-token={}",
-                                 iam::urlencode_query(parameters.ContinuationToken.value())));
+    std::string query;
+    auto add_param = [&query](std::string_view param) {
+        if (!query.empty()) {
+            query.append("&");
+        }
+        query.append(param);
+    };
+
+    if constexpr (api_version == ListObjectsVersion::V2) {
+        add_param("list-type=2");
+    }
+
+    add_param(std::format("max-keys={}", parameters.MaxKeys));
+
+    if constexpr (api_version == ListObjectsVersion::V1) {
+        if (parameters.Marker.has_value()) {
+            add_param(std::format("marker={}", iam::urlencode_query(parameters.Marker.value())));
+        }
+    }
+    if constexpr (api_version == ListObjectsVersion::V2) {
+        if (parameters.ContinuationToken.has_value()) {
+            add_param(std::format("continuation-token={}",
+                                  iam::urlencode_query(parameters.ContinuationToken.value())));
+        }
+        if (parameters.FetchOwner) {
+            add_param("fetch-owner=true");
+        }
+        if (parameters.StartAfter.has_value()) {
+            add_param(std::format("start-after={}", parameters.StartAfter.value()));
+        }
     }
     if (parameters.Delimiter.has_value()) {
-        query.append(std::format("&delimiter={}", iam::urlencode_query(parameters.Delimiter.value())));
+        add_param(std::format("delimiter={}", iam::urlencode_query(parameters.Delimiter.value())));
     }
     if (parameters.EncodingType.has_value()) {
-        query.append(std::format("&encoding-type={}", parameters.EncodingType.value()));
-    }
-    if (parameters.FetchOwner) {
-        query.append("&fetch-owner=true");
+        add_param(std::format("encoding-type={}", parameters.EncodingType.value()));
     }
     if (parameters.Prefix.has_value()) {
         if (parameters.EncodingType.value_or("") == "url") {
-            query.append(std::format("&prefix={}", parameters.Prefix.value()));
+            add_param(std::format("prefix={}", parameters.Prefix.value()));
         } else {
-            query.append(std::format("&prefix={}", iam::urlencode_query(parameters.Prefix.value())));
+            add_param(std::format("prefix={}", iam::urlencode_query(parameters.Prefix.value())));
         }
     }
-    if (parameters.StartAfter.has_value()) {
-        query.append(std::format("&start-after={}", parameters.StartAfter.value()));
-    }
+
+    return query;
+}
+
+} // namespace
+
+meta::crt<boost::asio::awaitable<
+    std::expected<ListObjectsResult, std::variant<boost::beast::error_code, pugi::xml_parse_status>>>>
+Client::list_objects(ListObjectsParameters parameters, boost::beast::http::fields headers) const {
+    const std::string query = list_objects_prepare_query<ListObjectsVersion::V1>(parameters);
 
     auto res =
         co_await session_->get(std::format("/{}", parameters.Bucket), query, std::move(headers), false, true);
     if (res) {
-        co_return parse_list_objects_v2(res.value().body())
+        co_return parse_list_objects<ListObjectsVersion::V1>(res.value().body())
+            .transform_error([&query](pugi::xml_parse_status err) {
+                std::println(std::cerr, "ERROR query {}", query);
+                return std::variant<boost::beast::error_code, pugi::xml_parse_status>{err};
+            });
+    }
+    co_return std::unexpected<std::variant<boost::beast::error_code, pugi::xml_parse_status>>{res.error()};
+}
+
+meta::crt<boost::asio::awaitable<
+    std::expected<ListObjectsV2Result, std::variant<boost::beast::error_code, pugi::xml_parse_status>>>>
+Client::list_objects_v2(ListObjectsV2Parameters parameters, boost::beast::http::fields headers) const {
+    const std::string query = list_objects_prepare_query<ListObjectsVersion::V2>(parameters);
+
+    auto res =
+        co_await session_->get(std::format("/{}", parameters.Bucket), query, std::move(headers), false, true);
+    if (res) {
+        co_return parse_list_objects<ListObjectsVersion::V2>(res.value().body())
             .transform_error([&query](pugi::xml_parse_status err) {
                 std::println(std::cerr, "ERROR query {}", query);
                 return std::variant<boost::beast::error_code, pugi::xml_parse_status>{err};
