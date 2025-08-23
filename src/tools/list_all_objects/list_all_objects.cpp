@@ -53,6 +53,7 @@ struct Options {
     std::string access_key;
     std::string secret_key;
     std::string output_file;
+    ListObjectsApiVersion api_version{};
 
     double scale_up_factor{};
     double scale_down_factor{};
@@ -72,6 +73,7 @@ struct Options {
         ("access-key-file", boost::program_options::value<std::string>(&ret.access_key)->required(), "path to access key file")
         ("secret-access-key-file", boost::program_options::value<std::string>(&ret.secret_key)->required(), "path to secret key file")
         ("output-file,o", boost::program_options::value<std::string>(&ret.output_file)->required(), "path to output file")
+        ("api-version", boost::program_options::value<std::string>()->default_value("v2"), "ListObjects API version to use (v1 or v2)")
         ("scale-up-factor", boost::program_options::value<double>(&ret.scale_up_factor)->default_value(1.2), "multiply workers by this factor when scaling up")
         ("scale-down-factor", boost::program_options::value<double>(&ret.scale_down_factor)->default_value(0.8), "multiply workers by this factor when scaling down")
         ("scaling-interval", boost::program_options::value<std::size_t>(&ret.scaling_interval_seconds)->default_value(1), "scaling check interval in seconds")
@@ -87,6 +89,16 @@ struct Options {
         exit(0);
     }
     boost::program_options::notify(varmap);
+
+    const std::string api_version_str = varmap["api-version"].as<std::string>();
+    if (api_version_str == "v1") {
+        ret.api_version = s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1;
+    } else if (api_version_str == "v2") {
+        ret.api_version = s3cpp::tools::list_all_objects::ListObjectsApiVersion::V2;
+    } else {
+        std::println(std::cerr, "Invalid API version '{}'. Must be 'v1' or 'v2'.", api_version_str);
+        exit(1);
+    }
 
     ret.access_key = file_to_string(ret.access_key);
     ret.secret_key = file_to_string(ret.secret_key);
@@ -157,8 +169,9 @@ int main(int argc, char **argv) {
     boost::asio::posix::stream_descriptor output_file_stream{file_strand, output_file_fd};
 
     // Create worker manager for dynamic scaling
-    WorkerManager worker_manager{client, options.bucket, metrics, std::move(output_file_stream),
-                                 pool,   scaling_config};
+    WorkerManager worker_manager{
+        client,         options.bucket,     metrics, std::move(output_file_stream), pool,
+        scaling_config, options.api_version};
 
     // Start initial workers
     worker_manager.ensure_workers_spawned();
