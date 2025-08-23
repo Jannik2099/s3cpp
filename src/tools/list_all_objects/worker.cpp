@@ -1,6 +1,7 @@
 #include "worker.hpp"
 
 #include "misc.hpp"
+#include "s3cpp/aws/s3/client.hpp"
 #include "s3cpp/aws/s3/types.hpp"
 #include "s3cpp/meta.hpp"
 
@@ -25,6 +26,7 @@
 #include <span>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -32,6 +34,68 @@
 namespace {
 
 constexpr auto token = boost::asio::as_tuple(boost::asio::use_awaitable);
+
+template <s3cpp::tools::list_all_objects::ListObjectsApiVersion api_version>
+[[nodiscard]] s3cpp::meta::crt<boost::asio::awaitable<
+    std::conditional_t<api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1,
+                       s3cpp::aws::s3::ListObjectsResult, s3cpp::aws::s3::ListObjectsV2Result>>>
+list_one_impl(s3cpp::aws::s3::Client client, std::string bucket, std::optional<std::string> prefix,
+              std::optional<std::string> continuation_token) {
+    const std::string my_prefix = prefix.value_or("<no prefix>");
+    struct Visitor {
+        static std::string operator()(const boost::beast::error_code &error) { return error.what(); }
+        static std::string operator()(const pugi::xml_parse_status &error) {
+            return std::format("pugixml error {}", std::to_underlying(error));
+        }
+    };
+    for (int retries = 0; retries < 5; retries++) {
+        if constexpr (api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1) {
+            auto res = co_await client.list_objects(
+                {.Bucket = bucket, .Marker = continuation_token, .Delimiter = "/", .Prefix = prefix});
+            if (!res) {
+                const auto errstr = std::visit(Visitor{}, res.error());
+                std::println(std::cerr, "ERROR in prefix {} {} - retrying", my_prefix, errstr);
+                if (std::holds_alternative<boost::beast::error_code>(res.error())) {
+                    continue;
+                }
+            }
+            co_return res.value();
+        } else {
+            auto res = co_await client.list_objects_v2({.Bucket = bucket,
+                                                        .ContinuationToken = continuation_token,
+                                                        .Delimiter = "/",
+                                                        .Prefix = prefix});
+            if (!res) {
+                const auto errstr = std::visit(Visitor{}, res.error());
+                std::println(std::cerr, "ERROR in prefix {} {} - retrying", my_prefix, errstr);
+                if (std::holds_alternative<boost::beast::error_code>(res.error())) {
+                    continue;
+                }
+            }
+            co_return res.value();
+        }
+    }
+    std::println("no success after 5 retries on prefix {}", my_prefix);
+    if constexpr (api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1) {
+        co_return s3cpp::aws::s3::ListObjectsResult{};
+    } else {
+        co_return s3cpp::aws::s3::ListObjectsV2Result{};
+    }
+}
+
+template <s3cpp::tools::list_all_objects::ListObjectsApiVersion api_version>
+[[nodiscard]] bool check_repeated_token(
+    const std::conditional_t<api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1,
+                             s3cpp::aws::s3::ListObjectsResult, s3cpp::aws::s3::ListObjectsV2Result>
+        &result) {
+    if constexpr (api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1) {
+        return result.NextMarker.has_value() && result.Marker.has_value() &&
+               result.Marker == result.NextMarker;
+    } else {
+        return result.NextContinuationToken.has_value() && result.ContinuationToken.has_value() &&
+               result.ContinuationToken == result.NextContinuationToken;
+    }
+}
 
 } // namespace
 
@@ -87,30 +151,17 @@ Worker::get_next_prefix() {
     co_return ret;
 }
 
-meta::crt<boost::asio::awaitable<aws::s3::ListObjectsV2Result>>
+meta::crt<boost::asio::awaitable<std::variant<aws::s3::ListObjectsResult, aws::s3::ListObjectsV2Result>>>
 Worker::list_one(std::optional<std::string> prefix, std::optional<std::string> continuation_token) {
-    const std::string my_prefix = prefix.value_or("<no prefix>");
-    for (int retries = 0; retries < 5; retries++) {
-        auto res = co_await client.list_objects_v2(
-            {.Bucket = bucket, .ContinuationToken = continuation_token, .Delimiter = "/", .Prefix = prefix});
-        if (!res) {
-            struct Visitor {
-                static std::string operator()(const boost::beast::error_code &error) { return error.what(); }
-                static std::string operator()(const pugi::xml_parse_status &error) {
-                    return std::format("pugixml error {}", std::to_underlying(error));
-                }
-            };
-            const auto errstr = std::visit(Visitor{}, res.error());
-            std::println(std::cerr, "ERROR in prefix {} {} - retrying", my_prefix, errstr);
-            if (std::holds_alternative<boost::beast::error_code>(res.error())) {
-                continue;
-            }
-        }
-
-        co_return res.value();
+    if (api_version == ListObjectsApiVersion::V1) {
+        auto result =
+            co_await list_one_impl<ListObjectsApiVersion::V1>(client, bucket, prefix, continuation_token);
+        co_return std::variant<aws::s3::ListObjectsResult, aws::s3::ListObjectsV2Result>{result};
+    } else {
+        auto result =
+            co_await list_one_impl<ListObjectsApiVersion::V2>(client, bucket, prefix, continuation_token);
+        co_return std::variant<aws::s3::ListObjectsResult, aws::s3::ListObjectsV2Result>{result};
     }
-    std::println("no success after 5 retries on prefix {}", my_prefix);
-    co_return aws::s3::ListObjectsV2Result{};
 }
 
 meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPrefix prefix,
@@ -118,28 +169,52 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
     std::optional<std::string> continuation_token;
     while (true) {
         stats->ops_in_flight++;
-        aws::s3::ListObjectsV2Result res = co_await list_one(prefix.Prefix, std::move(continuation_token));
+        auto result_variant = co_await list_one(prefix.Prefix, std::move(continuation_token));
 
-        if (res.NextContinuationToken.has_value() && res.ContinuationToken.has_value() &&
-            res.ContinuationToken == res.NextContinuationToken) {
-            std::println(std::cerr, "WARN prefix {} yielded repeated ContinuationToken, skipping",
-                         prefix.Prefix.value_or("<empty prefix>"));
-            stats->ops_in_flight--;
-            (*workers_running_op)--;
-            co_return;
+        // Extract common fields from either result type
+        std::optional<std::vector<aws::s3::Object>> contents;
+        std::optional<std::vector<aws::s3::CommonPrefix>> common_prefixes;
+
+        if (std::holds_alternative<aws::s3::ListObjectsResult>(result_variant)) {
+            const auto &res = std::get<aws::s3::ListObjectsResult>(result_variant);
+
+            if (res.NextMarker.has_value() && res.Marker.has_value() && res.Marker == res.NextMarker) {
+                std::println(std::cerr, "WARN prefix {} yielded repeated Marker, skipping",
+                             prefix.Prefix.value_or("<empty prefix>"));
+                stats->ops_in_flight--;
+                (*workers_running_op)--;
+                co_return;
+            }
+
+            continuation_token = res.NextMarker;
+            contents = res.Contents;
+            common_prefixes = res.CommonPrefixes;
+        } else {
+            const auto &res = std::get<aws::s3::ListObjectsV2Result>(result_variant);
+
+            if (res.NextContinuationToken.has_value() && res.ContinuationToken.has_value() &&
+                res.ContinuationToken == res.NextContinuationToken) {
+                std::println(std::cerr, "WARN prefix {} yielded repeated ContinuationToken, skipping",
+                             prefix.Prefix.value_or("<empty prefix>"));
+                stats->ops_in_flight--;
+                (*workers_running_op)--;
+                co_return;
+            }
+
+            continuation_token = res.NextContinuationToken;
+            contents = res.Contents;
+            common_prefixes = res.CommonPrefixes;
         }
 
-        continuation_token = std::move(res.NextContinuationToken);
-
-        co_await write_objects(res.Contents.value_or(std::vector<aws::s3::Object>{}));
+        co_await write_objects(contents.value_or(std::vector<aws::s3::Object>{}));
 
         {
             const std::scoped_lock lock{*queue_mutex};
-            stats->total_objects_found += res.Contents.value_or(std::vector<aws::s3::Object>{}).size();
+            stats->total_objects_found += contents.value_or(std::vector<aws::s3::Object>{}).size();
             stats->total_queue_length +=
-                res.CommonPrefixes.value_or(std::vector<aws::s3::CommonPrefix>{}).size();
-            prefix_queue->emplace(
-                depth + 1, std::move(res.CommonPrefixes).value_or(std::vector<aws::s3::CommonPrefix>{}));
+                common_prefixes.value_or(std::vector<aws::s3::CommonPrefix>{}).size();
+            prefix_queue->emplace(depth + 1,
+                                  std::move(common_prefixes).value_or(std::vector<aws::s3::CommonPrefix>{}));
             stats->ops_in_flight--;
             stats->total_ops++;
         }
@@ -225,10 +300,11 @@ bool Worker::should_terminate_early() const {
 Worker::Worker(aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> stats,
                std::shared_ptr<boost::asio::posix::stream_descriptor> output_file_stream,
                std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
-               std::shared_ptr<std::atomic<std::size_t>> workers_running_op, WorkerScalingRefs scaling_refs)
+               std::shared_ptr<std::atomic<std::size_t>> workers_running_op,
+               ListObjectsApiVersion api_version, WorkerScalingRefs scaling_refs)
     : client{std::move(client)}, bucket{std::move(bucket)}, stats{std::move(stats)},
-      output_file_stream{std::move(output_file_stream)}, prefix_queue{std::move(prefix_queue)},
-      queue_mutex{std::move(queue_mutex)}, workers_running_op{std::move(workers_running_op)},
-      scaling_refs{scaling_refs} {}
+      output_file_stream{std::move(output_file_stream)}, api_version{api_version},
+      prefix_queue{std::move(prefix_queue)}, queue_mutex{std::move(queue_mutex)},
+      workers_running_op{std::move(workers_running_op)}, scaling_refs{scaling_refs} {}
 
 } // namespace s3cpp::tools::list_all_objects

@@ -6,11 +6,14 @@
 #include <chrono>
 #include <compare>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <queue>
 #include <vector>
 
 namespace s3cpp::tools::list_all_objects {
+
+enum class ListObjectsApiVersion : std::uint8_t { V1, V2 };
 
 struct PrefixQueueEntry {
     std::size_t depth = 0;

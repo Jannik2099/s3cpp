@@ -15,6 +15,7 @@
 #include <span>
 #include <string>
 #include <tuple>
+#include <variant>
 
 namespace s3cpp::tools::list_all_objects {
 
@@ -29,6 +30,7 @@ private:
     std::string bucket;
     std::shared_ptr<Metrics> stats;
     std::shared_ptr<boost::asio::posix::stream_descriptor> output_file_stream;
+    ListObjectsApiVersion api_version;
 
     // Shared queue and synchronization - references to WorkerManager's state
     std::shared_ptr<PrefixQueue> prefix_queue;
@@ -42,7 +44,8 @@ private:
     [[nodiscard]] meta::crt<
         boost::asio::awaitable<std::optional<std::tuple<aws::s3::CommonPrefix, std::size_t>>>>
     get_next_prefix();
-    [[nodiscard]] meta::crt<boost::asio::awaitable<aws::s3::ListObjectsV2Result>>
+    [[nodiscard]] meta::crt<
+        boost::asio::awaitable<std::variant<aws::s3::ListObjectsResult, aws::s3::ListObjectsV2Result>>>
     list_one(std::optional<std::string> prefix, std::optional<std::string> continuation_token);
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>> process_prefix(aws::s3::CommonPrefix prefix,
                                                                          std::size_t depth);
@@ -56,7 +59,7 @@ public:
                          std::shared_ptr<boost::asio::posix::stream_descriptor> output_file_stream,
                          std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
                          std::shared_ptr<std::atomic<std::size_t>> workers_running_op,
-                         WorkerScalingRefs scaling_refs = {});
+                         ListObjectsApiVersion api_version, WorkerScalingRefs scaling_refs = {});
 
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>> work();
 };
