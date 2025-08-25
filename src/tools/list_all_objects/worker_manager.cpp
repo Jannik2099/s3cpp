@@ -5,19 +5,58 @@
 #include "worker.hpp"
 
 #include <algorithm>
+#include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/buffer.hpp>
 #include <boost/asio/co_spawn.hpp> // IWYU pragma: keep
 #include <boost/asio/detached.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/this_coro.hpp>
 #include <boost/asio/thread_pool.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/write.hpp>
+#include <boost/lockfree/stack.hpp>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <iostream>
 #include <memory>
 #include <print>
 #include <s3cpp/aws/s3/client.hpp>
 #include <string>
+#include <thread>
 #include <utility>
+
+namespace {
+
+s3cpp::meta::crt<boost::asio::awaitable<void>>
+writer_coroutine(std::shared_ptr<s3cpp::tools::list_all_objects::Metrics> metrics,
+                 boost::asio::posix::stream_descriptor output_file_stream,
+                 std::shared_ptr<boost::lockfree::stack<std::string>> write_stack) {
+    constexpr auto token = boost::asio::as_tuple(boost::asio::use_awaitable);
+
+    while (metrics->active_workers > 0) {
+        std::string str;
+
+        if (write_stack->pop(str)) {
+            const boost::asio::const_buffer buf{str.data(), str.size()};
+            const auto [error, bytes_written] =
+                co_await boost::asio::async_write(output_file_stream, buf, token);
+
+            if (error) {
+                std::println(std::cerr, "ERROR writing to output file: {}", error.what());
+            }
+        } else {
+            // No data available, sleep briefly before checking again
+            boost::asio::steady_timer timer{co_await boost::asio::this_coro::executor,
+                                            std::chrono::steady_clock::now() + std::chrono::milliseconds{10}};
+            co_await timer.async_wait(boost::asio::use_awaitable);
+        }
+    }
+}
+
+} // namespace
 
 namespace s3cpp::tools::list_all_objects {
 
@@ -26,15 +65,21 @@ WorkerManager::WorkerManager(s3cpp::aws::s3::Client client, std::string bucket,
                              boost::asio::posix::stream_descriptor output_file_stream,
                              boost::asio::thread_pool &pool, WorkerScalingConfig config,
                              ListObjectsApiVersion api_version, OutputFormat output_format)
-    : client{std::move(client)}, bucket{std::move(bucket)}, metrics{std::move(metrics)},
-      output_file_stream{
-          std::make_shared<boost::asio::posix::stream_descriptor>(std::move(output_file_stream))},
-      pool{pool}, config{config}, api_version{api_version}, output_format{output_format}, target_workers{10},
-      last_scaling_decision{std::chrono::steady_clock::now()} {
-
+    : client{std::move(client)}, bucket{std::move(bucket)}, metrics{std::move(metrics)}, pool{pool},
+      config{config}, api_version{api_version}, output_format{output_format} {
     // Initialize the shared queue with the root prefix (empty prefix)
     shared_prefix_queue->emplace(PrefixQueueEntry{.depth = 0, .paths = {{}}});
     this->metrics->total_queue_length++;
+    this->metrics->target_workers = std::max(this->metrics->target_workers.load(), 1UL);
+
+    ensure_workers_spawned();
+    // we need to wait for a worker to start so that the writer doesn't immediately exit
+    while (this->metrics->total_ops == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds{10});
+    }
+    boost::asio::co_spawn(pool,
+                          writer_coroutine(this->metrics, std::move(output_file_stream), this->write_stack),
+                          boost::asio::detached);
 }
 
 std::size_t WorkerManager::calculate_desired_workers(double current_ops_per_second) const {
@@ -77,22 +122,17 @@ void WorkerManager::adjust_workers(double current_ops_per_second) {
     }
 
     const std::size_t desired_workers = calculate_desired_workers(current_ops_per_second);
-    const std::size_t current_target = target_workers;
+    const std::size_t current_target = metrics->target_workers;
 
     if (desired_workers != current_target) {
-        target_workers = desired_workers;
+        metrics->target_workers = desired_workers;
         last_scaling_decision = now;
-
-        std::println("Worker scaling decision: {} -> {} workers (ops/s: {:.2f})", current_target,
-                     desired_workers, current_ops_per_second);
-
-        // Spawn additional workers if needed
         ensure_workers_spawned();
     }
 }
 
 void WorkerManager::ensure_workers_spawned() {
-    const std::size_t target = target_workers;
+    const std::size_t target = metrics->target_workers;
     const std::size_t current_spawned = spawned_workers;
 
     // Spawn additional workers up to the target
@@ -105,21 +145,16 @@ void WorkerManager::ensure_workers_spawned() {
     }
 }
 
-meta::crt<boost::asio::awaitable<void>> WorkerManager::spawn_worker() {
-    // Create scaling refs for the worker to use
-    const WorkerScalingRefs scaling_refs{.target_workers = &target_workers,
-                                         .active_workers = &(metrics->active_workers)};
-
+s3cpp::meta::crt<boost::asio::awaitable<void>> WorkerManager::spawn_worker() {
     // Create worker with shared queue and synchronization state
     Worker worker{client,
                   bucket,
                   metrics,
-                  output_file_stream,
+                  write_stack,
                   shared_prefix_queue,
                   shared_queue_mutex,
                   shared_workers_running_op,
                   api_version,
-                  scaling_refs,
                   output_format};
 
     // Run the worker - this will process work and handle its own termination

@@ -11,7 +11,6 @@
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
-#include <boost/asio/strand.hpp>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <boost/program_options/parsers.hpp>
@@ -170,7 +169,6 @@ int main(int argc, char **argv) {
         }
     }};
 
-    const auto file_strand = boost::asio::make_strand(pool);
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
     const auto output_file_fd = open(options.output_file.c_str(), O_CREAT | O_TRUNC | O_WRONLY | O_CLOEXEC,
                                      S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP);
@@ -178,7 +176,7 @@ int main(int argc, char **argv) {
         std::println(std::cerr, "failed to open output file {}: {}", options.output_file, strerror(errno));
         return 1;
     }
-    boost::asio::posix::stream_descriptor output_file_stream{file_strand, output_file_fd};
+    boost::asio::posix::stream_descriptor output_file_stream{pool, output_file_fd};
 
     // Create worker manager for dynamic scaling
     WorkerManager worker_manager{client,
@@ -189,9 +187,6 @@ int main(int argc, char **argv) {
                                  scaling_config,
                                  options.api_version,
                                  options.output_format};
-
-    // Start initial workers
-    worker_manager.ensure_workers_spawned();
 
     // Start scaling management thread
     const std::jthread scaling_thread{[&worker_manager, metrics](const std::stop_token &token) {

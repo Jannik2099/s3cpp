@@ -6,19 +6,15 @@
 #include "s3cpp/meta.hpp"
 
 #include <atomic>
-#include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/buffer.hpp>
-#include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
-#include <boost/asio/use_awaitable.hpp>
-#include <boost/asio/write.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/json/conversion.hpp>
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
 #include <boost/json/value_from.hpp>
+#include <boost/lockfree/stack.hpp>
 #include <chrono>
 #include <cstddef>
 #include <format>
@@ -46,8 +42,6 @@ void tag_invoke([[maybe_unused]] const boost::json::value_from_tag &tag, boost::
 } // namespace std
 
 namespace {
-
-constexpr auto token = boost::asio::as_tuple(boost::asio::use_awaitable);
 
 template <s3cpp::tools::list_all_objects::ListObjectsApiVersion api_version>
 [[nodiscard]] s3cpp::meta::crt<boost::asio::awaitable<
@@ -220,7 +214,7 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
             common_prefixes = res.CommonPrefixes;
         }
 
-        co_await write_objects(contents.value_or(std::vector<aws::s3::Object>{}));
+        write_objects(contents.value_or(std::vector<aws::s3::Object>{}));
 
         {
             const std::scoped_lock lock{*queue_mutex};
@@ -240,7 +234,7 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
     (*workers_running_op)--;
 }
 
-meta::crt<boost::asio::awaitable<void>> Worker::write_objects(std::span<const aws::s3::Object> objects) {
+void Worker::write_objects(std::span<const aws::s3::Object> objects) {
     std::string string_buf;
     if (output_format == OutputFormat::PLAIN) {
         std::size_t required_size{};
@@ -268,19 +262,15 @@ meta::crt<boost::asio::awaitable<void>> Worker::write_objects(std::span<const aw
         }
     }
 
-    const boost::asio::const_buffer buf{string_buf.data(), string_buf.size()};
-    // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-    const auto [error, bytes] = co_await boost::asio::async_write(*output_file_stream, buf, token);
-    if (error) {
-        std::println(std::cerr, "ERROR writing to output file: {}", error.what());
+    // Push the data to the write stack instead of writing directly
+    if (!string_buf.empty()) {
+        write_stack->push(std::move(string_buf));
     }
 }
 
 meta::crt<boost::asio::awaitable<void>> Worker::work() {
     // Increment active worker count when starting work
-    if (scaling_refs.active_workers != nullptr) {
-        (*scaling_refs.active_workers)++;
-    }
+    (stats->active_workers)++;
 
     while (true) {
         if (co_await is_done()) {
@@ -300,33 +290,25 @@ meta::crt<boost::asio::awaitable<void>> Worker::work() {
     }
 
     // Decrement active worker count when terminating
-    if (scaling_refs.active_workers != nullptr) {
-        (*scaling_refs.active_workers)--;
-    }
+    (stats->active_workers)--;
 }
 
 bool Worker::should_terminate_early() const {
-    // Only terminate early if we have scaling pointers and there are too many active workers
-    if (scaling_refs.target_workers == nullptr || scaling_refs.active_workers == nullptr) {
-        return false;
-    }
-
-    const std::size_t current_active = scaling_refs.active_workers->load();
-    const std::size_t target = scaling_refs.target_workers->load();
+    const std::size_t current_active = stats->active_workers;
+    const std::size_t target = stats->target_workers;
 
     // Terminate if we have more active workers than target
     return current_active > target;
 }
 
 Worker::Worker(aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> stats,
-               std::shared_ptr<boost::asio::posix::stream_descriptor> output_file_stream,
+               std::shared_ptr<boost::lockfree::stack<std::string>> write_stack,
                std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
                std::shared_ptr<std::atomic<std::size_t>> workers_running_op,
-               ListObjectsApiVersion api_version, WorkerScalingRefs scaling_refs, OutputFormat output_format)
+               ListObjectsApiVersion api_version, OutputFormat output_format)
     : client{std::move(client)}, bucket{std::move(bucket)}, stats{std::move(stats)},
-      output_file_stream{std::move(output_file_stream)}, api_version{api_version},
-      prefix_queue{std::move(prefix_queue)}, queue_mutex{std::move(queue_mutex)},
-      workers_running_op{std::move(workers_running_op)}, scaling_refs{scaling_refs},
+      write_stack{std::move(write_stack)}, api_version{api_version}, prefix_queue{std::move(prefix_queue)},
+      queue_mutex{std::move(queue_mutex)}, workers_running_op{std::move(workers_running_op)},
       output_format{output_format} {}
 
 } // namespace s3cpp::tools::list_all_objects
