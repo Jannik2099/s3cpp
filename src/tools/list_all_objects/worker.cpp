@@ -15,6 +15,10 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/beast/core/error.hpp>
+#include <boost/json/conversion.hpp>
+#include <boost/json/serialize.hpp>
+#include <boost/json/value.hpp>
+#include <boost/json/value_from.hpp>
 #include <chrono>
 #include <cstddef>
 #include <format>
@@ -30,6 +34,16 @@
 #include <utility>
 #include <variant>
 #include <vector>
+
+namespace std {
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+void tag_invoke([[maybe_unused]] const boost::json::value_from_tag &tag, boost::json::value &value,
+                const std::chrono::time_point<std::chrono::system_clock> &time_point) {
+    value = std::format("{:%FT%T%z}", time_point);
+}
+
+} // namespace std
 
 namespace {
 
@@ -227,22 +241,29 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
 }
 
 meta::crt<boost::asio::awaitable<void>> Worker::write_objects(std::span<const aws::s3::Object> objects) {
-    std::size_t required_size{};
-    for (const auto &object : objects) {
-        if (!object.Key.has_value()) {
-            std::println(std::cerr, "ERROR received object without key, ETag {}",
-                         object.ETag.value_or("<no ETag>"));
-            continue;
-        }
-        required_size += object.Key->size() + 1;
-    }
-
     std::string string_buf;
-    string_buf.reserve(required_size);
+    if (output_format == OutputFormat::PLAIN) {
+        std::size_t required_size{};
+        for (const auto &object : objects) {
+            if (!object.Key.has_value()) {
+                std::println(std::cerr, "ERROR received object without key, ETag {}",
+                             object.ETag.value_or("<no ETag>"));
+                continue;
+            }
+            required_size += object.Key->size() + 1;
+        }
 
-    for (const auto &object : objects) {
-        if (object.Key.has_value()) {
-            string_buf += *object.Key;
+        string_buf.reserve(required_size);
+
+        for (const auto &object : objects) {
+            if (object.Key.has_value()) {
+                string_buf += *object.Key;
+                string_buf += '\n';
+            }
+        }
+    } else {
+        for (const auto &object : objects) {
+            string_buf += boost::json::serialize(boost::json::value_from(object));
             string_buf += '\n';
         }
     }
@@ -301,10 +322,11 @@ Worker::Worker(aws::s3::Client client, std::string bucket, std::shared_ptr<Metri
                std::shared_ptr<boost::asio::posix::stream_descriptor> output_file_stream,
                std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
                std::shared_ptr<std::atomic<std::size_t>> workers_running_op,
-               ListObjectsApiVersion api_version, WorkerScalingRefs scaling_refs)
+               ListObjectsApiVersion api_version, WorkerScalingRefs scaling_refs, OutputFormat output_format)
     : client{std::move(client)}, bucket{std::move(bucket)}, stats{std::move(stats)},
       output_file_stream{std::move(output_file_stream)}, api_version{api_version},
       prefix_queue{std::move(prefix_queue)}, queue_mutex{std::move(queue_mutex)},
-      workers_running_op{std::move(workers_running_op)}, scaling_refs{scaling_refs} {}
+      workers_running_op{std::move(workers_running_op)}, scaling_refs{scaling_refs},
+      output_format{output_format} {}
 
 } // namespace s3cpp::tools::list_all_objects
