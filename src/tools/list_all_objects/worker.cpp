@@ -10,11 +10,14 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
 #include <boost/beast/core/error.hpp>
+#include <boost/describe/members.hpp>
+#include <boost/describe/modifiers.hpp>
 #include <boost/json/conversion.hpp>
 #include <boost/json/serialize.hpp>
 #include <boost/json/value.hpp>
 #include <boost/json/value_from.hpp>
 #include <boost/lockfree/stack.hpp>
+#include <boost/mp11/algorithm.hpp>
 #include <chrono>
 #include <cstddef>
 #include <format>
@@ -31,15 +34,41 @@
 #include <variant>
 #include <vector>
 
+// tag_invoke seems to use ADL, so we can't put it in anon namespaces
+
 namespace std {
 
-// NOLINTNEXTLINE(misc-use-internal-linkage)
-void tag_invoke([[maybe_unused]] const boost::json::value_from_tag &tag, boost::json::value &value,
-                const std::chrono::time_point<std::chrono::system_clock> &time_point) {
+[[maybe_unused]] static inline void
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+tag_invoke([[maybe_unused]] const boost::json::value_from_tag &tag, boost::json::value &value,
+           const chrono::time_point<chrono::system_clock> &time_point) {
     value = std::format("{:%FT%T%z}", time_point);
 }
 
 } // namespace std
+
+namespace s3cpp::aws::s3 {
+
+[[maybe_unused]] static inline void
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+tag_invoke([[maybe_unused]] const boost::json::value_from_tag &tag, boost::json::value &value,
+           const Object &object) {
+    auto &json_obj = value.emplace_object();
+    boost::mp11::mp_for_each<boost::describe::describe_members<Object, boost::describe::mod_public>>(
+        [&](auto member) {
+            // NOLINTNEXTLINE(readability-static-accessed-through-instance)
+            if constexpr (meta::is_specialization_v<std::remove_cvref_t<decltype(object.*member.pointer)>,
+                                                    std::optional>) {
+                // most fields will be empty. omit them to make the output smaller
+                if (!(object.*member.pointer).has_value()) {
+                    return;
+                }
+            }
+            json_obj[member.name] = boost::json::value_from(object.*member.pointer);
+        });
+}
+
+} // namespace s3cpp::aws::s3
 
 namespace {
 
