@@ -56,6 +56,7 @@ if not boost_dep.found()
         'asio',
         'beast',
         'describe',
+        'lockfree',
     ] + boost_modules
     cmake_options = cmake.subproject_options()
     cmake_options.add_cmake_defines(

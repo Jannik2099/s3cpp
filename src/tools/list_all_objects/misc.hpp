@@ -33,6 +33,7 @@ struct Metrics {
     std::atomic<std::size_t> total_queue_length;
     std::atomic<std::size_t> total_objects_found;
     std::atomic<std::size_t> active_workers;
+    std::atomic<std::size_t> target_workers;
 };
 
 struct WorkerScalingConfig {

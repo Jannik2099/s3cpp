@@ -7,7 +7,7 @@
 
 #include <atomic>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/posix/stream_descriptor.hpp>
+#include <boost/lockfree/stack.hpp>
 #include <cstddef>
 #include <memory>
 #include <mutex>
@@ -19,26 +19,18 @@
 
 namespace s3cpp::tools::list_all_objects {
 
-struct WorkerScalingRefs {
-    std::atomic<std::size_t> *target_workers = nullptr;
-    std::atomic<std::size_t> *active_workers = nullptr;
-};
-
 class Worker {
 private:
     aws::s3::Client client;
     std::string bucket;
     std::shared_ptr<Metrics> stats;
-    std::shared_ptr<boost::asio::posix::stream_descriptor> output_file_stream;
+    std::shared_ptr<boost::lockfree::stack<std::string>> write_stack;
     ListObjectsApiVersion api_version;
 
     // Shared queue and synchronization - references to WorkerManager's state
     std::shared_ptr<PrefixQueue> prefix_queue;
     std::shared_ptr<std::mutex> queue_mutex;
     std::shared_ptr<std::atomic<std::size_t>> workers_running_op;
-
-    // Worker scaling support
-    WorkerScalingRefs scaling_refs;
 
     OutputFormat output_format;
 
@@ -51,18 +43,16 @@ private:
     list_one(std::optional<std::string> prefix, std::optional<std::string> continuation_token);
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>> process_prefix(aws::s3::CommonPrefix prefix,
                                                                          std::size_t depth);
-    [[nodiscard]] meta::crt<boost::asio::awaitable<void>>
-    write_objects(std::span<const aws::s3::Object> objects);
+    void write_objects(std::span<const aws::s3::Object> objects);
 
     [[nodiscard]] bool should_terminate_early() const;
 
 public:
     [[nodiscard]] Worker(aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> stats,
-                         std::shared_ptr<boost::asio::posix::stream_descriptor> output_file_stream,
+                         std::shared_ptr<boost::lockfree::stack<std::string>> write_stack,
                          std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
                          std::shared_ptr<std::atomic<std::size_t>> workers_running_op,
-                         ListObjectsApiVersion api_version, WorkerScalingRefs scaling_refs,
-                         OutputFormat output_format);
+                         ListObjectsApiVersion api_version, OutputFormat output_format);
 
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>> work();
 };
