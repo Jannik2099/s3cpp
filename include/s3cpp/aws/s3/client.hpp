@@ -29,10 +29,8 @@ struct ListObjectsParameters {
     std::optional<std::string> EncodingType;
     std::size_t MaxKeys = 1000;
     std::optional<std::string> Prefix;
-
-    BOOST_DESCRIBE_STRUCT(ListObjectsParameters, (),
-                          (Bucket, Marker, Delimiter, EncodingType, MaxKeys, Prefix));
 };
+BOOST_DESCRIBE_STRUCT(ListObjectsParameters, (), (Bucket, Marker, Delimiter, EncodingType, MaxKeys, Prefix));
 
 struct ListObjectsV2Parameters {
     std::string Bucket;
@@ -43,11 +41,10 @@ struct ListObjectsV2Parameters {
     std::size_t MaxKeys = 1000;
     std::optional<std::string> Prefix;
     std::optional<std::string> StartAfter;
-
-    BOOST_DESCRIBE_STRUCT(ListObjectsV2Parameters, (),
-                          (Bucket, ContinuationToken, Delimiter, EncodingType, FetchOwner, MaxKeys, Prefix,
-                           StartAfter));
 };
+BOOST_DESCRIBE_STRUCT(ListObjectsV2Parameters, (),
+                      (Bucket, ContinuationToken, Delimiter, EncodingType, FetchOwner, MaxKeys, Prefix,
+                       StartAfter));
 
 class Client {
 private:
