@@ -39,7 +39,7 @@ pugixml_dep = dependency(
     static: prefer_static,
 )
 
-boost_modules = ['program_options', 'url']
+boost_modules = ['json', 'program_options', 'url']
 boost_dep = dependency(
     'boost',
     modules: boost_modules,

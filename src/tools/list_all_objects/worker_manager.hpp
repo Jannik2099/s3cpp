@@ -25,6 +25,7 @@ private:
     boost::asio::thread_pool &pool;
     WorkerScalingConfig config;
     ListObjectsApiVersion api_version;
+    OutputFormat output_format;
 
     // Shared worker state
     std::shared_ptr<PrefixQueue> shared_prefix_queue = std::make_shared<PrefixQueue>();
@@ -42,7 +43,7 @@ private:
 public:
     WorkerManager(s3cpp::aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> metrics,
                   boost::asio::posix::stream_descriptor output_file_stream, boost::asio::thread_pool &pool,
-                  WorkerScalingConfig config, ListObjectsApiVersion api_version);
+                  WorkerScalingConfig config, ListObjectsApiVersion api_version, OutputFormat output_format);
 
     void adjust_workers(double current_ops_per_second);
     [[nodiscard]] std::size_t get_target_workers() const { return target_workers.load(); }

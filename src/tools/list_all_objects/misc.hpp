@@ -13,6 +13,8 @@
 
 namespace s3cpp::tools::list_all_objects {
 
+enum class OutputFormat : std::uint8_t { PLAIN, JSON };
+
 enum class ListObjectsApiVersion : std::uint8_t { V1, V2 };
 
 struct PrefixQueueEntry {

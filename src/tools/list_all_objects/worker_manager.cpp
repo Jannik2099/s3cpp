@@ -25,11 +25,11 @@ WorkerManager::WorkerManager(s3cpp::aws::s3::Client client, std::string bucket,
                              std::shared_ptr<Metrics> metrics,
                              boost::asio::posix::stream_descriptor output_file_stream,
                              boost::asio::thread_pool &pool, WorkerScalingConfig config,
-                             ListObjectsApiVersion api_version)
+                             ListObjectsApiVersion api_version, OutputFormat output_format)
     : client{std::move(client)}, bucket{std::move(bucket)}, metrics{std::move(metrics)},
       output_file_stream{
           std::make_shared<boost::asio::posix::stream_descriptor>(std::move(output_file_stream))},
-      pool{pool}, config{config}, api_version{api_version}, target_workers{10},
+      pool{pool}, config{config}, api_version{api_version}, output_format{output_format}, target_workers{10},
       last_scaling_decision{std::chrono::steady_clock::now()} {
 
     // Initialize the shared queue with the root prefix (empty prefix)
@@ -119,7 +119,8 @@ meta::crt<boost::asio::awaitable<void>> WorkerManager::spawn_worker() {
                   shared_queue_mutex,
                   shared_workers_running_op,
                   api_version,
-                  scaling_refs};
+                  scaling_refs,
+                  output_format};
 
     // Run the worker - this will process work and handle its own termination
     co_await worker.work();

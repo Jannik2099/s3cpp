@@ -54,6 +54,7 @@ struct Options {
     std::string secret_key;
     std::string output_file;
     ListObjectsApiVersion api_version{};
+    OutputFormat output_format{};
 
     double scale_up_factor{};
     double scale_down_factor{};
@@ -74,6 +75,7 @@ struct Options {
         ("secret-access-key-file", boost::program_options::value<std::string>(&ret.secret_key)->required(), "path to secret key file")
         ("output-file,o", boost::program_options::value<std::string>(&ret.output_file)->required(), "path to output file")
         ("api-version", boost::program_options::value<std::string>()->default_value("v2"), "ListObjects API version to use (v1 or v2)")
+        ("format", boost::program_options::value<std::string>()->default_value("plain"), "Output format (plain or json)")
         ("scale-up-factor", boost::program_options::value<double>(&ret.scale_up_factor)->default_value(1.2), "multiply workers by this factor when scaling up")
         ("scale-down-factor", boost::program_options::value<double>(&ret.scale_down_factor)->default_value(0.8), "multiply workers by this factor when scaling down")
         ("scaling-interval", boost::program_options::value<std::size_t>(&ret.scaling_interval_seconds)->default_value(1), "scaling check interval in seconds")
@@ -97,6 +99,16 @@ struct Options {
         ret.api_version = s3cpp::tools::list_all_objects::ListObjectsApiVersion::V2;
     } else {
         std::println(std::cerr, "Invalid API version '{}'. Must be 'v1' or 'v2'.", api_version_str);
+        exit(1);
+    }
+
+    const std::string output_format_str = varmap["format"].as<std::string>();
+    if (output_format_str == "plain") {
+        ret.output_format = s3cpp::tools::list_all_objects::OutputFormat::PLAIN;
+    } else if (output_format_str == "json") {
+        ret.output_format = s3cpp::tools::list_all_objects::OutputFormat::JSON;
+    } else {
+        std::println(std::cerr, "Invalid output format '{}'. Must be 'plain' or 'json'.", output_format_str);
         exit(1);
     }
 
@@ -169,9 +181,14 @@ int main(int argc, char **argv) {
     boost::asio::posix::stream_descriptor output_file_stream{file_strand, output_file_fd};
 
     // Create worker manager for dynamic scaling
-    WorkerManager worker_manager{
-        client,         options.bucket,     metrics, std::move(output_file_stream), pool,
-        scaling_config, options.api_version};
+    WorkerManager worker_manager{client,
+                                 options.bucket,
+                                 metrics,
+                                 std::move(output_file_stream),
+                                 pool,
+                                 scaling_config,
+                                 options.api_version,
+                                 options.output_format};
 
     // Start initial workers
     worker_manager.ensure_workers_spawned();
