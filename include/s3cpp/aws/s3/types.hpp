@@ -19,16 +19,14 @@ namespace s3cpp::aws::s3 {
 struct Owner {
     std::optional<std::string> DisplayName;
     std::optional<std::string> ID;
-
-    BOOST_DESCRIBE_STRUCT(Owner, (), (DisplayName, ID));
 };
+BOOST_DESCRIBE_STRUCT(Owner, (), (DisplayName, ID));
 
 struct RestoreStatus {
     std::optional<bool> IsRestoreInProgress;
     std::optional<std::chrono::time_point<std::chrono::system_clock>> RestoreExpiryDate;
-
-    BOOST_DESCRIBE_STRUCT(RestoreStatus, (), (IsRestoreInProgress, RestoreExpiryDate));
 };
+BOOST_DESCRIBE_STRUCT(RestoreStatus, (), (IsRestoreInProgress, RestoreExpiryDate));
 
 struct Object {
     enum class ChecksumAlgorithm : std::uint8_t { CRC32, CRC32C, SHA1, SHA256, CRC64NVME };
@@ -65,19 +63,17 @@ struct Object {
     std::optional<std::size_t> Size;
     std::optional<StorageClass> StorageClass_;
 
-    BOOST_DESCRIBE_STRUCT(Object, (),
-                          (ChecksumAlgorithm_, ChecksumType_, ETag, Key, LastModified, Owner_, RestoreStatus_,
-                           Size, StorageClass_));
-
     [[nodiscard]] explicit Object(std::string_view xml);
     [[nodiscard]] explicit Object(const pugi::xml_node &xml);
 };
+BOOST_DESCRIBE_STRUCT(Object, (),
+                      (ChecksumAlgorithm_, ChecksumType_, ETag, Key, LastModified, Owner_, RestoreStatus_,
+                       Size, StorageClass_));
 
 struct CommonPrefix {
     std::optional<std::string> Prefix;
-
-    BOOST_DESCRIBE_STRUCT(CommonPrefix, (), (Prefix));
 };
+BOOST_DESCRIBE_STRUCT(CommonPrefix, (), (Prefix));
 
 struct ListObjectsResult {
     std::optional<std::vector<CommonPrefix>> CommonPrefixes;
@@ -90,11 +86,10 @@ struct ListObjectsResult {
     std::string Name;
     std::optional<std::string> NextMarker;
     std::string Prefix;
-
-    BOOST_DESCRIBE_STRUCT(ListObjectsResult, (),
-                          (CommonPrefixes, Contents, Delimiter, EncodingType, IsTruncated, Marker, MaxKeys,
-                           Name, NextMarker, Prefix));
 };
+BOOST_DESCRIBE_STRUCT(ListObjectsResult, (),
+                      (CommonPrefixes, Contents, Delimiter, EncodingType, IsTruncated, Marker, MaxKeys, Name,
+                       NextMarker, Prefix));
 
 struct ListObjectsV2Result {
     std::optional<std::vector<CommonPrefix>> CommonPrefixes;
@@ -109,11 +104,10 @@ struct ListObjectsV2Result {
     std::optional<std::string> NextContinuationToken;
     std::string Prefix;
     std::optional<std::string> StartAfter;
-
-    BOOST_DESCRIBE_STRUCT(ListObjectsV2Result, (),
-                          (CommonPrefixes, Contents, ContinuationToken, Delimiter, EncodingType, IsTruncated,
-                           KeyCount, MaxKeys, Name, NextContinuationToken, Prefix, StartAfter));
 };
+BOOST_DESCRIBE_STRUCT(ListObjectsV2Result, (),
+                      (CommonPrefixes, Contents, ContinuationToken, Delimiter, EncodingType, IsTruncated,
+                       KeyCount, MaxKeys, Name, NextContinuationToken, Prefix, StartAfter));
 
 } // namespace s3cpp::aws::s3
 
