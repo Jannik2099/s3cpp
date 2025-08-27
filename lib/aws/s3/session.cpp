@@ -31,29 +31,22 @@ constexpr auto token = boost::asio::as_tuple(boost::asio::use_awaitable);
 }
 
 Session::crt Session::method_impl(boost::beast::http::verb method, std::string_view path,
-                                  bool is_path_encoded, std::string_view query, bool is_query_encoded,
+                                  bool is_path_encoded, std::string_view query,
                                   boost::beast::http::fields headers, std::span<const std::byte> body) const {
     using rtype = Session::crt::value_type;
 
     std::string_view encoded_path = path;
     std::string encoded_path_buf;
-    std::string_view encoded_query = query;
-    std::string encoded_query_buf;
     if (!is_path_encoded && iam::urlencode_path_required(path)) {
         encoded_path_buf = iam::urlencode_path(path);
         encoded_path = encoded_path_buf;
     }
-    if (!is_query_encoded && iam::urlencode_query_required(query)) {
-        encoded_query_buf = iam::urlencode_query(query);
-        encoded_query = encoded_query_buf;
-    }
-
     std::string_view encoded_target;
     std::string encoded_target_buf;
-    if (encoded_query.empty()) {
+    if (query.empty()) {
         encoded_target = encoded_path;
     } else {
-        encoded_target_buf = std::format("{}?{}", encoded_path, encoded_query);
+        encoded_target_buf = std::format("{}?{}", encoded_path, query);
         encoded_target = encoded_target_buf;
     }
 
@@ -95,7 +88,7 @@ Session::crt Session::method_impl(boost::beast::http::verb method, std::string_v
 
 Session::crt Session::put(std::string_view path, std::span<const std::byte> data,
                           boost::beast::http::fields headers, bool is_encoded) {
-    return method_impl(boost::beast::http::verb::put, path, is_encoded, {}, true, std::move(headers), data);
+    return method_impl(boost::beast::http::verb::put, path, is_encoded, {}, std::move(headers), data);
 }
 
 Session::crt Session::put(std::string_view path, std::string_view data, boost::beast::http::fields headers,
@@ -105,9 +98,8 @@ Session::crt Session::put(std::string_view path, std::string_view data, boost::b
 }
 
 Session::crt Session::get(std::string_view path, std::string_view query, boost::beast::http::fields headers,
-                          bool is_path_encoded, bool is_query_encoded) const {
-    return method_impl(boost::beast::http::verb::get, path, is_path_encoded, query, is_query_encoded,
-                       std::move(headers), {});
+                          bool is_path_encoded) const {
+    return method_impl(boost::beast::http::verb::get, path, is_path_encoded, query, std::move(headers), {});
 }
 
 } // namespace s3cpp::aws::s3

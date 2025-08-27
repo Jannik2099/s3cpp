@@ -33,7 +33,7 @@ private:
     boost::asio::any_io_executor executor;
 
     [[nodiscard]] crt method_impl(boost::beast::http::verb method, std::string_view path,
-                                  bool is_path_encoded, std::string_view query, bool is_query_encoded,
+                                  bool is_path_encoded, std::string_view query,
                                   boost::beast::http::fields headers,
                                   std::span<const std::byte> body [[clang::lifetimebound]]) const;
 
@@ -43,8 +43,7 @@ public:
 
     [[nodiscard]] [[clang::coro_wrapper]] crt get(std::string_view path, std::string_view query = "",
                                                   boost::beast::http::fields headers = {},
-                                                  bool is_path_encoded = false,
-                                                  bool is_query_encoded = false) const;
+                                                  bool is_path_encoded = false) const;
 
     [[nodiscard]] [[clang::coro_wrapper]] crt put(std::string_view path,
                                                   std::span<const std::byte> data [[clang::lifetimebound]],

@@ -170,7 +170,7 @@ Client::list_objects(ListObjectsParameters parameters, boost::beast::http::field
     const std::string query = list_objects_prepare_query<ListObjectsVersion::V1>(parameters);
 
     auto res =
-        co_await session_->get(std::format("/{}", parameters.Bucket), query, std::move(headers), false, true);
+        co_await session_->get(std::format("/{}", parameters.Bucket), query, std::move(headers), false);
     if (res) {
         co_return parse_list_objects<ListObjectsVersion::V1>(res.value().body())
             .transform_error([&query](pugi::xml_parse_status err) {
@@ -187,7 +187,7 @@ Client::list_objects_v2(ListObjectsV2Parameters parameters, boost::beast::http::
     const std::string query = list_objects_prepare_query<ListObjectsVersion::V2>(parameters);
 
     auto res =
-        co_await session_->get(std::format("/{}", parameters.Bucket), query, std::move(headers), false, true);
+        co_await session_->get(std::format("/{}", parameters.Bucket), query, std::move(headers), false);
     if (res) {
         co_return parse_list_objects<ListObjectsVersion::V2>(res.value().body())
             .transform_error([&query](pugi::xml_parse_status err) {
