@@ -39,6 +39,8 @@ private:
     // wrapped in unique_ptr so that the class stays moveable
     std::unique_ptr<boost::asio::cancellation_signal> scaling_cancellation_signal =
         std::make_unique<boost::asio::cancellation_signal>();
+    std::unique_ptr<boost::asio::cancellation_signal> writer_cancellation_signal =
+        std::make_unique<boost::asio::cancellation_signal>();
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>>
     scaling_worker(boost::asio::cancellation_slot cancellation_slot);
 

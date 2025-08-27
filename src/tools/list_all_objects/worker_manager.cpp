@@ -41,31 +41,31 @@
 namespace {
 
 s3cpp::meta::crt<boost::asio::awaitable<void>>
-writer_coroutine(std::shared_ptr<s3cpp::tools::list_all_objects::Metrics> metrics,
-                 boost::asio::posix::stream_descriptor output_file_stream,
-                 std::shared_ptr<boost::lockfree::stack<std::string>> write_stack) {
+writer_coroutine(boost::asio::posix::stream_descriptor output_file_stream,
+                 std::shared_ptr<boost::lockfree::stack<std::string>> write_stack,
+                 boost::asio::cancellation_slot cancellation_slot) {
     constexpr auto token = boost::asio::as_tuple(boost::asio::use_awaitable);
+    std::string str;
 
-    // The evaluation order matters here.
-    // Workers push to the stack before exiting.
-    // But in the other direction, we might check for an empty stack, have a worker write to
-    // it and exit, and then see that there's no active workers
-    while (metrics->active_workers > 0 || !write_stack->empty()) {
-        std::string str;
-
-        if (write_stack->pop(str)) {
-            const boost::asio::const_buffer buf{str.data(), str.size()};
-            const auto [error, bytes_written] =
-                co_await boost::asio::async_write(output_file_stream, buf, token);
-
-            if (error) {
-                std::println(std::cerr, "ERROR writing to output file: {}", error.what());
+    while (true) {
+        boost::asio::steady_timer timer{co_await boost::asio::this_coro::executor,
+                                        std::chrono::milliseconds{10}};
+        const auto [wait_ec] =
+            co_await timer.async_wait(boost::asio::bind_cancellation_slot(cancellation_slot, token));
+        if (!wait_ec.failed() || wait_ec.value() == boost::asio::error::operation_aborted) {
+            while (write_stack->pop(str)) {
+                const boost::asio::const_buffer buf{str.data(), str.size()};
+                const auto [error, bytes_written] =
+                    co_await boost::asio::async_write(output_file_stream, buf, token);
+                if (error) {
+                    std::println(std::cerr, "ERROR writing to output file: {}", error.what());
+                }
             }
-        } else {
-            // No data available, sleep briefly before checking again
-            boost::asio::steady_timer timer{co_await boost::asio::this_coro::executor,
-                                            std::chrono::milliseconds{10}};
-            co_await timer.async_wait(boost::asio::use_awaitable);
+            if (wait_ec.value() == boost::asio::error::operation_aborted) {
+                co_return;
+            }
+        } else if (wait_ec.failed()) {
+            throw boost::system::system_error{wait_ec};
         }
     }
 }
@@ -88,16 +88,14 @@ WorkerManager::WorkerManager(s3cpp::aws::s3::Client client, std::string bucket,
 
     boost::asio::co_spawn(*this->pool, scaling_worker(scaling_cancellation_signal->slot()),
                           boost::asio::detached);
-    // we need to wait for a worker to start so that the writer doesn't immediately exit
-    while (this->metrics->total_ops == 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds{10});
-    }
-    boost::asio::co_spawn(*this->pool,
-                          writer_coroutine(this->metrics, std::move(output_file_stream), write_stack),
-                          boost::asio::detached);
+    boost::asio::co_spawn(
+        *this->pool,
+        writer_coroutine(std::move(output_file_stream), write_stack, writer_cancellation_signal->slot()),
+        boost::asio::detached);
 }
 
 WorkerManager::~WorkerManager() {
+    // Wait for all work to complete
     while (true) {
         {
             const std::scoped_lock lock{*shared_queue_mutex};
@@ -107,7 +105,11 @@ WorkerManager::~WorkerManager() {
         }
         std::this_thread::sleep_for(std::chrono::milliseconds{1000});
     }
+
+    // Cancel scaling and writer coroutines
     scaling_cancellation_signal->emit(boost::asio::cancellation_type::total);
+    writer_cancellation_signal->emit(boost::asio::cancellation_type::total);
+
     pool->join();
 }
 
