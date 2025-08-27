@@ -15,27 +15,17 @@ jobs:
   build:
     name: Rocky Linux
     runs-on: ubuntu-latest
-    container: docker.io/rockylinux/rockylinux:9
+    container: docker.io/rockylinux/rockylinux:8
 
     env:
       PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
-      CFLAGS: -march=x86-64-v3 -O3 -flto=thin -faddrsig -ffunction-sections -fdata-sections -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
-      LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=thin -Wl,--gc-sections -Wl,--icf=safe -fuse-ld=lld -Wl,--thinlto-cache-dir=/thinlto_cache -Wl,--thinlto-cache-policy=cache_size_bytes=500m
-      CC: ccache clang
-      CXX: ccache clang++
-      AR: llvm-ar
-      NM: llvm-nm
-      RANLIB: llvm-ranlib
+      CFLAGS: -march=x86-64-v3 -O3 -flto=auto -ffunction-sections -fdata-sections -D_GLIBCXX_ASSERTIONS -D_FORTIFY_SOURCE=3
+      LDFLAGS: -Wl,-z,relro -Wl,-z,now -flto=auto -Wl,--gc-sections
+      CC: ccache gcc
+      CXX: ccache g++
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: thinlto cache
-        uses: actions/cache@v4
-        with:
-          path: /thinlto_cache
-          key: thinlto_cache-${{ github.run_id }}
-          restore-keys: thinlto_cache
 
       - name: meson wrap cache
         uses: actions/cache@v4
@@ -49,9 +39,7 @@ jobs:
 
       - name: install build deps
         run: |
-          dnf -y install python3.12-pip gcc-toolset-14 git cmake xz jq 'dnf-command(copr)'
-          dnf -y copr enable @fedora-llvm-team/llvm-snapshots centos-stream-9-x86_64
-          dnf -y install llvm20-toolset
+          dnf -y install python3.12-pip gcc-toolset-14 git cmake xz jq
           pip3.12 install meson ninja
 
       - name: install ccache
