@@ -125,14 +125,11 @@ struct Options {
 int main(int argc, char **argv) {
     const Options options = parse_opts(argc, argv);
 
-    boost::asio::thread_pool pool{std::thread::hardware_concurrency()};
-
     const auto session = std::make_shared<s3cpp::aws::s3::Session>(
         s3cpp::aws::iam::Session{.access_key = options.access_key,
                                  .secret_access_key = options.secret_key,
                                  .region = "default",
-                                 .endpoint = boost::urls::url{options.endpoint}},
-        pool.get_executor());
+                                 .endpoint = boost::urls::url{options.endpoint}});
     const s3cpp::aws::s3::Client client{session};
     const auto metrics = std::make_shared<Metrics>();
 
@@ -176,40 +173,15 @@ int main(int argc, char **argv) {
         std::println(std::cerr, "failed to open output file {}: {}", options.output_file, strerror(errno));
         return 1;
     }
-    boost::asio::posix::stream_descriptor output_file_stream{pool, output_file_fd};
 
-    // Create worker manager for dynamic scaling
-    WorkerManager worker_manager{client,
-                                 options.bucket,
-                                 metrics,
-                                 std::move(output_file_stream),
-                                 pool,
-                                 scaling_config,
-                                 options.api_version,
-                                 options.output_format};
-
-    // Start scaling management thread
-    const std::jthread scaling_thread{[&worker_manager, metrics](const std::stop_token &token) {
-        using namespace boost::accumulators;
-        accumulator_set<std::size_t, stats<tag::rolling_mean>> ops_accumulator{
-            tag::rolling_window::window_size = 60};
-
-        std::size_t previous_ops = 0;
-
-        while (!token.stop_requested()) {
-            std::this_thread::sleep_for(std::chrono::seconds{1});
-
-            const std::size_t current_total_ops = metrics->total_ops.load();
-            const std::size_t new_ops = current_total_ops - previous_ops;
-            previous_ops = current_total_ops;
-
-            ops_accumulator(new_ops);
-            const double current_ops_per_second = rolling_mean(ops_accumulator);
-
-            // Adjust workers based on current performance
-            worker_manager.adjust_workers(current_ops_per_second);
-        }
-    }};
-
-    pool.join();
+    auto pool = std::make_unique<boost::asio::thread_pool>(std::thread::hardware_concurrency());
+    boost::asio::posix::stream_descriptor output_file_stream{*pool, output_file_fd};
+    const WorkerManager worker_manager{client,
+                                       options.bucket,
+                                       metrics,
+                                       std::move(output_file_stream),
+                                       std::move(pool),
+                                       scaling_config,
+                                       options.api_version,
+                                       options.output_format};
 }
