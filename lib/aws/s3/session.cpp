@@ -3,7 +3,9 @@
 #include "s3cpp/aws/iam/urlencode.hpp"
 #include "session_extra.hpp"
 
+#include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/as_tuple.hpp>
+#include <boost/asio/this_coro.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http/fields.hpp>  // IWYU pragma: keep
@@ -56,6 +58,7 @@ Session::crt Session::method_impl(boost::beast::http::verb method, std::string_v
 
     const bool is_ssl = endpoint.scheme() != "http";
     // TODO: gracefully close ssl stream in all cases
+    const boost::asio::any_io_executor executor = co_await boost::asio::this_coro::executor;
     auto prep_res = co_await _internal::prepare_stream(_internal::get_ssl_stream(is_ssl, executor, ssl_ctx),
                                                        endpoint, executor);
     if (!prep_res) {

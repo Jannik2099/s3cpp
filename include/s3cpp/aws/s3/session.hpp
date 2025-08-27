@@ -3,7 +3,6 @@
 #include "s3cpp/aws/iam/session.hpp"
 #include "s3cpp/meta.hpp"
 
-#include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/beast/core/error.hpp>
@@ -29,8 +28,6 @@ public:
 
 private:
     mutable boost::asio::ssl::context ssl_ctx{boost::asio::ssl::context::tls_client};
-    // mutable boost::asio::basic_socket{};
-    boost::asio::any_io_executor executor;
 
     [[nodiscard]] crt method_impl(boost::beast::http::verb method, std::string_view path,
                                   bool is_path_encoded, std::string_view query,
@@ -38,8 +35,7 @@ private:
                                   std::span<const std::byte> body [[clang::lifetimebound]]) const;
 
 public:
-    [[nodiscard]] Session(iam::Session session, boost::asio::any_io_executor executor)
-        : iam::Session{std::move(session)}, executor{std::move(executor)} {}
+    [[nodiscard]] Session(iam::Session session) : iam::Session{std::move(session)} {}
 
     [[nodiscard]] [[clang::coro_wrapper]] crt get(std::string_view path, std::string_view query = "",
                                                   boost::beast::http::fields headers = {},

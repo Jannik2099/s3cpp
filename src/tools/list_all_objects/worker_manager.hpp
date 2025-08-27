@@ -6,10 +6,10 @@
 
 #include <atomic>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/thread_pool.hpp>
 #include <boost/lockfree/stack.hpp>
-#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <mutex>
@@ -24,7 +24,7 @@ private:
     std::shared_ptr<Metrics> metrics;
     std::shared_ptr<boost::lockfree::stack<std::string>> write_stack =
         std::make_shared<boost::lockfree::stack<std::string>>(1024);
-    boost::asio::thread_pool &pool;
+    std::unique_ptr<boost::asio::thread_pool> pool;
     WorkerScalingConfig config;
     ListObjectsApiVersion api_version;
     OutputFormat output_format;
@@ -35,20 +35,28 @@ private:
     std::shared_ptr<std::atomic<std::size_t>> shared_workers_running_op =
         std::make_shared<std::atomic<std::size_t>>(0);
 
-    std::atomic<std::size_t> spawned_workers{0};
-    std::chrono::steady_clock::time_point last_scaling_decision;
-
     [[nodiscard]] std::size_t calculate_desired_workers(double current_ops_per_second) const;
-    [[nodiscard]] bool should_scale(std::chrono::steady_clock::time_point now) const;
+
     [[nodiscard]] meta::crt<boost::asio::awaitable<void>> spawn_worker();
-    void ensure_workers_spawned();
+
+    // wrapped in unique_ptr so that the class stays moveable
+    std::unique_ptr<boost::asio::cancellation_signal> scaling_cancellation_signal =
+        std::make_unique<boost::asio::cancellation_signal>();
+    [[nodiscard]] meta::crt<boost::asio::awaitable<void>>
+    scaling_worker(boost::asio::cancellation_slot cancellation_slot);
 
 public:
-    WorkerManager(s3cpp::aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> metrics,
-                  boost::asio::posix::stream_descriptor output_file_stream, boost::asio::thread_pool &pool,
-                  WorkerScalingConfig config, ListObjectsApiVersion api_version, OutputFormat output_format);
+    [[nodiscard]] WorkerManager(s3cpp::aws::s3::Client client, std::string bucket,
+                                std::shared_ptr<Metrics> metrics,
+                                boost::asio::posix::stream_descriptor output_file_stream,
+                                std::unique_ptr<boost::asio::thread_pool> pool, WorkerScalingConfig config,
+                                ListObjectsApiVersion api_version, OutputFormat output_format);
+    ~WorkerManager();
 
-    void adjust_workers(double current_ops_per_second);
+    [[nodiscard]] WorkerManager(const WorkerManager &) = delete;
+    [[nodiscard]] WorkerManager &operator=(const WorkerManager &) = delete;
+    [[nodiscard]] WorkerManager(WorkerManager &&) = default;
+    [[nodiscard]] WorkerManager &operator=(WorkerManager &&) = default;
 };
 
 } // namespace s3cpp::tools::list_all_objects
