@@ -155,13 +155,12 @@ int main(int argc, char **argv) {
             objects_accumulator(new_objects);
             ops_accumulator(new_ops);
 
-            std::println("{} active workers, {} ops in flight, {} queued ops, {} total ops, {} total "
+            std::println("{} active workers, {} queued ops, {} total ops, {} total "
                          "objects, {:.2f} objects/s, "
                          "{:.2f} ops/s",
-                         metrics->active_workers.load(), metrics->ops_in_flight.load(),
-                         metrics->total_queue_length.load(), metrics->total_ops.load(),
-                         metrics->total_objects_found.load(), rolling_mean(objects_accumulator),
-                         rolling_mean(ops_accumulator));
+                         metrics->active_workers.load(), metrics->total_queue_length.load(),
+                         metrics->total_ops.load(), metrics->total_objects_found.load(),
+                         rolling_mean(objects_accumulator), rolling_mean(ops_accumulator));
             std::flush(std::cout);
         }
     }};

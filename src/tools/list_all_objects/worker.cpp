@@ -5,7 +5,6 @@
 #include "s3cpp/aws/s3/types.hpp"
 #include "s3cpp/meta.hpp"
 
-#include <atomic>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
@@ -18,7 +17,6 @@
 #include <boost/json/value_from.hpp>
 #include <boost/lockfree/stack.hpp>
 #include <boost/mp11/algorithm.hpp>
-#include <boost/scope/scope_exit.hpp>
 #include <chrono>
 #include <cstddef>
 #include <format>
@@ -144,31 +142,7 @@ template <s3cpp::tools::list_all_objects::ListObjectsApiVersion api_version>
 
 namespace s3cpp::tools::list_all_objects {
 
-meta::crt<boost::asio::awaitable<bool>> Worker::is_done() {
-    while (true) {
-        bool queue_empty{};
-        {
-            const std::scoped_lock lock{*queue_mutex};
-            queue_empty = prefix_queue->empty();
-            if (queue_empty && stats->ops_in_flight == 0 && *workers_running_op == 0) {
-                // nothing in the queue and no work in flight
-                // we are done
-                co_return true;
-            }
-        }
-        if (queue_empty) {
-            // queue was empty but there is still work in flight
-            // suspend and resume the loop, as the outstanding work will generate new queue entries
-            // std::println("no work, suspending. {} ops in flight", ops_in_flight->load());
-            boost::asio::steady_timer timer{co_await boost::asio::this_coro::executor,
-                                            std::chrono::steady_clock::now() +
-                                                std::chrono::milliseconds{100}};
-            co_await timer.async_wait();
-            continue;
-        }
-        co_return false;
-    }
-}
+bool Worker::is_done() { return stats->total_queue_length == 0; }
 
 meta::crt<boost::asio::awaitable<std::optional<std::tuple<aws::s3::CommonPrefix, std::size_t>>>>
 Worker::get_next_prefix() {
@@ -190,7 +164,6 @@ Worker::get_next_prefix() {
     const auto ret = std::make_tuple(std::move(top->paths.back()), top->depth);
     top->paths.pop_back();
     stats->total_queue_length--;
-    (*workers_running_op)++;
     co_return ret;
 }
 
@@ -210,11 +183,7 @@ Worker::list_one(std::optional<std::string> prefix, std::optional<std::string> c
 meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPrefix prefix,
                                                                std::size_t depth) {
     std::optional<std::string> continuation_token;
-    const boost::scope::scope_exit decrement_workers_running_op{[this]() { (*workers_running_op)--; }};
     while (true) {
-        stats->ops_in_flight++;
-        const boost::scope::scope_exit decrement_ops_in_flight{[this]() { stats->ops_in_flight--; }};
-
         auto result_variant = co_await list_one(prefix.Prefix, std::move(continuation_token));
 
         // Extract common fields from either result type
@@ -253,10 +222,16 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
         {
             const std::scoped_lock lock{*queue_mutex};
             stats->total_objects_found += contents.value_or(std::vector<aws::s3::Object>{}).size();
-            stats->total_queue_length +=
-                common_prefixes.value_or(std::vector<aws::s3::CommonPrefix>{}).size();
-            prefix_queue->emplace(depth + 1,
-                                  std::move(common_prefixes).value_or(std::vector<aws::s3::CommonPrefix>{}));
+
+            // Only add queue entry if there are actual sub-prefixes to process
+            // Otherwise, workers may terminate because total_queue_length is 0, but there are still empty
+            // entries in the queue
+            auto prefixes = std::move(common_prefixes).value_or(std::vector<aws::s3::CommonPrefix>{});
+            if (!prefixes.empty()) {
+                stats->total_queue_length += prefixes.size();
+                prefix_queue->emplace(depth + 1, std::move(prefixes));
+            }
+
             stats->total_ops++;
         }
 
@@ -301,25 +276,18 @@ void Worker::write_objects(std::span<const aws::s3::Object> objects) {
 }
 
 meta::crt<boost::asio::awaitable<void>> Worker::work() {
-    // Increment active worker count when starting work
-    (stats->active_workers)++;
-    const boost::scope::scope_exit decrement_active_workers{[this]() { (stats->active_workers)--; }};
-
     while (true) {
-        if (co_await is_done()) {
-            break;
-        }
-
-        // Check if we should terminate early due to scaling down
-        if (should_terminate_early()) {
-            break;
-        }
-
+        // always try to get a work item before checking for termination:
+        // the termination check is opportunistic and not fully synchronized - we could immediately shut down
+        // while there's still work in the queue, causing a stall
         const auto next_prefix = co_await get_next_prefix();
-        if (!next_prefix.has_value()) {
-            continue;
+        if (next_prefix.has_value()) {
+            co_await process_prefix(std::get<0>(*next_prefix), std::get<1>(*next_prefix));
         }
-        co_await process_prefix(std::get<0>(*next_prefix), std::get<1>(*next_prefix));
+
+        if (is_done() || should_terminate_early()) {
+            break;
+        }
     }
 }
 
@@ -334,11 +302,9 @@ bool Worker::should_terminate_early() const {
 Worker::Worker(aws::s3::Client client, std::string bucket, std::shared_ptr<Metrics> stats,
                std::shared_ptr<boost::lockfree::stack<std::string>> write_stack,
                std::shared_ptr<PrefixQueue> prefix_queue, std::shared_ptr<std::mutex> queue_mutex,
-               std::shared_ptr<std::atomic<std::size_t>> workers_running_op,
                ListObjectsApiVersion api_version, OutputFormat output_format)
     : client{std::move(client)}, bucket{std::move(bucket)}, stats{std::move(stats)},
       write_stack{std::move(write_stack)}, api_version{api_version}, prefix_queue{std::move(prefix_queue)},
-      queue_mutex{std::move(queue_mutex)}, workers_running_op{std::move(workers_running_op)},
-      output_format{output_format} {}
+      queue_mutex{std::move(queue_mutex)}, output_format{output_format} {}
 
 } // namespace s3cpp::tools::list_all_objects

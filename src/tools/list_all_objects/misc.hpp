@@ -28,7 +28,6 @@ struct PrefixQueueEntry {
 using PrefixQueue = std::priority_queue<PrefixQueueEntry, std::vector<PrefixQueueEntry>, std::greater<>>;
 
 struct Metrics {
-    std::atomic<std::size_t> ops_in_flight;
     std::atomic<std::size_t> total_ops;
     std::atomic<std::size_t> total_queue_length;
     std::atomic<std::size_t> total_objects_found;
