@@ -4,7 +4,6 @@
 #include "s3cpp/aws/s3/client.hpp"
 #include "s3cpp/meta.hpp"
 
-#include <atomic>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/posix/stream_descriptor.hpp>
@@ -32,8 +31,6 @@ private:
     // Shared worker state
     std::shared_ptr<PrefixQueue> shared_prefix_queue = std::make_shared<PrefixQueue>();
     std::shared_ptr<std::mutex> shared_queue_mutex = std::make_shared<std::mutex>();
-    std::shared_ptr<std::atomic<std::size_t>> shared_workers_running_op =
-        std::make_shared<std::atomic<std::size_t>>(0);
 
     [[nodiscard]] std::size_t calculate_desired_workers(double current_ops_per_second) const;
 

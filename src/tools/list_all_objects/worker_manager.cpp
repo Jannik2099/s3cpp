@@ -26,11 +26,13 @@
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/asio/write.hpp>
 #include <boost/lockfree/stack.hpp>
+#include <boost/scope/scope_exit.hpp>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <print>
 #include <string>
 #include <thread>
@@ -44,6 +46,10 @@ writer_coroutine(std::shared_ptr<s3cpp::tools::list_all_objects::Metrics> metric
                  std::shared_ptr<boost::lockfree::stack<std::string>> write_stack) {
     constexpr auto token = boost::asio::as_tuple(boost::asio::use_awaitable);
 
+    // The evaluation order matters here.
+    // Workers push to the stack before exiting.
+    // But in the other direction, we might check for an empty stack, have a worker write to
+    // it and exit, and then see that there's no active workers
     while (metrics->active_workers > 0 || !write_stack->empty()) {
         std::string str;
 
@@ -58,7 +64,7 @@ writer_coroutine(std::shared_ptr<s3cpp::tools::list_all_objects::Metrics> metric
         } else {
             // No data available, sleep briefly before checking again
             boost::asio::steady_timer timer{co_await boost::asio::this_coro::executor,
-                                            std::chrono::steady_clock::now() + std::chrono::milliseconds{10}};
+                                            std::chrono::milliseconds{10}};
             co_await timer.async_wait(boost::asio::use_awaitable);
         }
     }
@@ -92,8 +98,14 @@ WorkerManager::WorkerManager(s3cpp::aws::s3::Client client, std::string bucket,
 }
 
 WorkerManager::~WorkerManager() {
-    while (metrics->active_workers > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    while (true) {
+        {
+            const std::scoped_lock lock{*shared_queue_mutex};
+            if (shared_prefix_queue->empty() && metrics->active_workers == 0) {
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds{1000});
     }
     scaling_cancellation_signal->emit(boost::asio::cancellation_type::total);
     pool->join();
@@ -177,18 +189,11 @@ std::size_t WorkerManager::calculate_desired_workers(double current_ops_per_seco
 }
 
 s3cpp::meta::crt<boost::asio::awaitable<void>> WorkerManager::spawn_worker() {
-    // Create worker with shared queue and synchronization state
-    Worker worker{client,
-                  bucket,
-                  metrics,
-                  write_stack,
-                  shared_prefix_queue,
-                  shared_queue_mutex,
-                  shared_workers_running_op,
-                  api_version,
-                  output_format};
+    Worker worker{client,      bucket,       metrics, write_stack, shared_prefix_queue, shared_queue_mutex,
+                  api_version, output_format};
 
-    // Run the worker - this will process work and handle its own termination
+    (metrics->active_workers)++;
+    const boost::scope::scope_exit decrement_active_workers{[this]() { (metrics->active_workers)--; }};
     co_await worker.work();
 }
 
