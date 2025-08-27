@@ -57,6 +57,7 @@ if not boost_dep.found()
         'beast',
         'describe',
         'lockfree',
+        'scope',
     ] + boost_modules
     cmake_options = cmake.subproject_options()
     cmake_options.add_cmake_defines(
