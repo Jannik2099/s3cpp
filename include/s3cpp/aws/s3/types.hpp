@@ -29,13 +29,13 @@ struct RestoreStatus {
 BOOST_DESCRIBE_STRUCT(RestoreStatus, (), (IsRestoreInProgress, RestoreExpiryDate));
 
 struct Object {
-    enum class ChecksumAlgorithm_t : std::uint8_t { CRC32, CRC32C, SHA1, SHA256, CRC64NVME };
-    BOOST_DESCRIBE_NESTED_ENUM(ChecksumAlgorithm_t, CRC32, CRC32C, SHA1, SHA256, CRC64NVME);
+    enum class ChecksumAlgorithm : std::uint8_t { CRC32, CRC32C, SHA1, SHA256, CRC64NVME };
+    BOOST_DESCRIBE_NESTED_ENUM(ChecksumAlgorithm, CRC32, CRC32C, SHA1, SHA256, CRC64NVME);
 
-    enum class ChecksumType_t : std::uint8_t { COMPOSITE, FULL_OBJECT };
-    BOOST_DESCRIBE_NESTED_ENUM(ChecksumType_t, COMPOSITE, FULL_OBJECT);
+    enum class ChecksumType : std::uint8_t { COMPOSITE, FULL_OBJECT };
+    BOOST_DESCRIBE_NESTED_ENUM(ChecksumType, COMPOSITE, FULL_OBJECT);
 
-    enum class StorageClass_t : std::uint8_t {
+    enum class StorageClass : std::uint8_t {
         STANDARD,
         REDUCED_REDUNDANCY,
         GLACIER,
@@ -49,26 +49,26 @@ struct Object {
         EXPRESS_ONEZONE,
         FSX_OPENZFS
     };
-    BOOST_DESCRIBE_NESTED_ENUM(StorageClass_t, STANDARD, REDUCED_REDUNDANCY, GLACIER, STANDARD_IA, ONEZONE_IA,
+    BOOST_DESCRIBE_NESTED_ENUM(StorageClass, STANDARD, REDUCED_REDUNDANCY, GLACIER, STANDARD_IA, ONEZONE_IA,
                                INTELLIGENT_TIERING, DEEP_ARCHIVE, OUTPOSTS, GLACIER_IR, SNOW, EXPRESS_ONEZONE,
                                FSX_OPENZFS);
 
-    std::optional<ChecksumAlgorithm_t> ChecksumAlgorithm;
-    std::optional<ChecksumType_t> ChecksumType;
+    std::optional<ChecksumAlgorithm> ChecksumAlgorithm_;
+    std::optional<ChecksumType> ChecksumType_;
     std::optional<std::string> ETag;
     std::optional<std::string> Key;
     std::optional<std::chrono::time_point<std::chrono::system_clock>> LastModified;
-    std::optional<Owner> Owner;
-    std::optional<RestoreStatus> RestoreStatus;
+    std::optional<Owner> Owner_;
+    std::optional<RestoreStatus> RestoreStatus_;
     std::optional<std::size_t> Size;
-    std::optional<StorageClass_t> StorageClass;
+    std::optional<StorageClass> StorageClass_;
 
     [[nodiscard]] explicit Object(std::string_view xml);
     [[nodiscard]] explicit Object(const pugi::xml_node &xml);
 };
 BOOST_DESCRIBE_STRUCT(Object, (),
-                      (ChecksumAlgorithm, ChecksumType, ETag, Key, LastModified, Owner, RestoreStatus, Size,
-                       StorageClass));
+                      (ChecksumAlgorithm_, ChecksumType_, ETag, Key, LastModified, Owner_, RestoreStatus_,
+                       Size, StorageClass_));
 
 struct CommonPrefix {
     std::optional<std::string> Prefix;
