@@ -13,11 +13,11 @@ namespace {
 constexpr boost::urls::grammar::lut_chars charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                                     "abcdefghijklmnopqrstuvwxyz"
                                                     "1234567890"
-                                                    "-._";
+                                                    "-._~";
 
 constexpr boost::urls::grammar::lut_chars path_charset = charset + "/";
 
-constexpr boost::urls::grammar::lut_chars query_charset = charset + "?=";
+constexpr boost::urls::grammar::lut_chars query_charset = charset;
 
 } // namespace
 
