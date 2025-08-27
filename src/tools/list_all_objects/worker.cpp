@@ -28,6 +28,7 @@
 #include <print>
 #include <span>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -64,7 +65,11 @@ tag_invoke([[maybe_unused]] const boost::json::value_from_tag &tag, boost::json:
                     return;
                 }
             }
-            json_obj[member.name] = boost::json::value_from(object.*member.pointer);
+            std::string_view name_view = member.name;
+            if (name_view.ends_with("_")) {
+                name_view = name_view.substr(0, name_view.size() - 1);
+            }
+            json_obj[name_view] = boost::json::value_from(object.*member.pointer);
         });
 }
 

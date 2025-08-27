@@ -14,19 +14,19 @@ namespace s3cpp::aws::s3 {
 Object::Object(const pugi::xml_node &xml) {
     if (const char *parsed = xml.child_value("ChecksumAlgorithm");
         parsed != nullptr && std::strlen(parsed) > 0) {
-        enum ChecksumAlgorithm_t chk {};
+        enum ChecksumAlgorithm chk {};
         if (!boost::describe::enum_from_string(parsed, chk)) {
             throw std::runtime_error{std::format("unknown checksum algorithm {}", parsed)};
         }
-        ChecksumAlgorithm = chk;
+        ChecksumAlgorithm_ = chk;
     }
 
     if (const char *parsed = xml.child_value("ChecksumType"); parsed != nullptr && std::strlen(parsed) > 0) {
-        enum ChecksumType_t chk {};
+        enum ChecksumType chk {};
         if (!boost::describe::enum_from_string(parsed, chk)) {
             throw std::runtime_error{std::format("unknown checksum type {}", parsed)};
         }
-        ChecksumType = chk;
+        ChecksumType_ = chk;
     }
 
     if (const char *parsed = xml.child_value("ETag"); parsed != nullptr) {
