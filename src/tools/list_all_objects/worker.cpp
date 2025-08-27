@@ -18,6 +18,7 @@
 #include <boost/json/value_from.hpp>
 #include <boost/lockfree/stack.hpp>
 #include <boost/mp11/algorithm.hpp>
+#include <boost/scope/scope_exit.hpp>
 #include <chrono>
 #include <cstddef>
 #include <format>
@@ -209,8 +210,11 @@ Worker::list_one(std::optional<std::string> prefix, std::optional<std::string> c
 meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPrefix prefix,
                                                                std::size_t depth) {
     std::optional<std::string> continuation_token;
+    const boost::scope::scope_exit decrement_workers_running_op{[this]() { (*workers_running_op)--; }};
     while (true) {
         stats->ops_in_flight++;
+        const boost::scope::scope_exit decrement_ops_in_flight{[this]() { stats->ops_in_flight--; }};
+
         auto result_variant = co_await list_one(prefix.Prefix, std::move(continuation_token));
 
         // Extract common fields from either result type
@@ -223,8 +227,6 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
             if (res.NextMarker.has_value() && res.Marker.has_value() && res.Marker == res.NextMarker) {
                 std::println(std::cerr, "WARN prefix {} yielded repeated Marker, skipping",
                              prefix.Prefix.value_or("<empty prefix>"));
-                stats->ops_in_flight--;
-                (*workers_running_op)--;
                 co_return;
             }
 
@@ -238,8 +240,6 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
                 res.ContinuationToken == res.NextContinuationToken) {
                 std::println(std::cerr, "WARN prefix {} yielded repeated ContinuationToken, skipping",
                              prefix.Prefix.value_or("<empty prefix>"));
-                stats->ops_in_flight--;
-                (*workers_running_op)--;
                 co_return;
             }
 
@@ -257,7 +257,6 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
                 common_prefixes.value_or(std::vector<aws::s3::CommonPrefix>{}).size();
             prefix_queue->emplace(depth + 1,
                                   std::move(common_prefixes).value_or(std::vector<aws::s3::CommonPrefix>{}));
-            stats->ops_in_flight--;
             stats->total_ops++;
         }
 
@@ -265,7 +264,6 @@ meta::crt<boost::asio::awaitable<void>> Worker::process_prefix(aws::s3::CommonPr
             break;
         }
     }
-    (*workers_running_op)--;
 }
 
 void Worker::write_objects(std::span<const aws::s3::Object> objects) {
@@ -305,6 +303,7 @@ void Worker::write_objects(std::span<const aws::s3::Object> objects) {
 meta::crt<boost::asio::awaitable<void>> Worker::work() {
     // Increment active worker count when starting work
     (stats->active_workers)++;
+    const boost::scope::scope_exit decrement_active_workers{[this]() { (stats->active_workers)--; }};
 
     while (true) {
         if (co_await is_done()) {
@@ -322,9 +321,6 @@ meta::crt<boost::asio::awaitable<void>> Worker::work() {
         }
         co_await process_prefix(std::get<0>(*next_prefix), std::get<1>(*next_prefix));
     }
-
-    // Decrement active worker count when terminating
-    (stats->active_workers)--;
 }
 
 bool Worker::should_terminate_early() const {
