@@ -8,6 +8,7 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/this_coro.hpp>
+#include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/describe/members.hpp>
 #include <boost/describe/modifiers.hpp>
@@ -89,16 +90,14 @@ list_one_impl(s3cpp::aws::s3::Client client, std::string bucket, std::optional<s
             return std::format("pugixml error {}", std::to_underlying(error));
         }
     };
-    for (int retries = 0; retries < 5; retries++) {
+    constexpr int max_retries = 5;
+    for (int retries = 1; retries <= max_retries; retries++) {
         if constexpr (api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1) {
             auto res = co_await client.list_objects(
                 {.Bucket = bucket, .Marker = continuation_token, .Delimiter = "/", .Prefix = prefix});
             if (!res) {
                 const auto errstr = std::visit(Visitor{}, res.error());
-                std::println(std::cerr, "ERROR in prefix {} {} - retrying", my_prefix, errstr);
-                if (std::holds_alternative<boost::beast::error_code>(res.error())) {
-                    continue;
-                }
+                std::println(std::cerr, "WARN in prefix {} {} - retry {}", my_prefix, errstr, retries);
             }
             co_return res.value();
         } else {
@@ -108,15 +107,14 @@ list_one_impl(s3cpp::aws::s3::Client client, std::string bucket, std::optional<s
                                                         .Prefix = prefix});
             if (!res) {
                 const auto errstr = std::visit(Visitor{}, res.error());
-                std::println(std::cerr, "ERROR in prefix {} {} - retrying", my_prefix, errstr);
-                if (std::holds_alternative<boost::beast::error_code>(res.error())) {
-                    continue;
-                }
+                std::println(std::cerr, "WARN in prefix {} {} - retry {}", my_prefix, errstr, retries);
             }
             co_return res.value();
         }
+        boost::asio::steady_timer timer{co_await boost::asio::this_coro::executor, std::chrono::seconds{1}};
+        co_await timer.async_wait(boost::asio::use_awaitable);
     }
-    std::println("no success after 5 retries on prefix {}", my_prefix);
+    std::println(std::cerr, "ERROR no success after {} retries on prefix {}", max_retries, my_prefix);
     if constexpr (api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1) {
         co_return s3cpp::aws::s3::ListObjectsResult{};
     } else {
