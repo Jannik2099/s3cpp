@@ -1,5 +1,7 @@
 #include "s3cpp/aws/s3/session.hpp"
 
+#include "dns_cache.hpp"
+#include "s3cpp/aws/iam/session.hpp"
 #include "s3cpp/aws/iam/urlencode.hpp"
 #include "session_extra.hpp"
 
@@ -18,6 +20,7 @@
 #include <cstddef>
 #include <expected>
 #include <format>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -60,7 +63,7 @@ Session::crt Session::method_impl(boost::beast::http::verb method, std::string_v
     // TODO: gracefully close ssl stream in all cases
     const boost::asio::any_io_executor executor = co_await boost::asio::this_coro::executor;
     auto prep_res = co_await _internal::prepare_stream(_internal::get_ssl_stream(is_ssl, executor, ssl_ctx),
-                                                       endpoint, executor);
+                                                       endpoint, dns_cache_);
     if (!prep_res) {
         co_return rtype{std::unexpect, prep_res.error()};
     }
@@ -104,5 +107,8 @@ Session::crt Session::get(std::string_view path, std::string_view query, boost::
                           bool is_path_encoded) const {
     return method_impl(boost::beast::http::verb::get, path, is_path_encoded, query, std::move(headers), {});
 }
+
+Session::Session(iam::Session session)
+    : iam::Session{std::move(session)}, dns_cache_{std::make_shared<_internal::DnsCache>(this->endpoint)} {}
 
 } // namespace s3cpp::aws::s3

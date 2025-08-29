@@ -5,7 +5,13 @@ subdir('aws')
 self_lib = static_library(
     's3cpp',
     lib_src,
-    dependencies: [boost_dep, openssl_dep, botan_dep, pugixml_dep],
+    dependencies: [
+        boost_dep,
+        openssl_dep,
+        botan_dep,
+        pugixml_dep,
+        libatomic_dep,
+    ],
     include_directories: inc_self,
 )
 

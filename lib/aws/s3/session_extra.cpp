@@ -1,5 +1,6 @@
 #include "session_extra.hpp"
 
+#include "dns_cache.hpp"
 #include "s3cpp/aws/iam/canonicalize.hpp"
 #include "s3cpp/aws/iam/session.hpp"
 #include "s3cpp/aws/iam/sign_request.hpp"
@@ -10,7 +11,6 @@
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
-#include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/ssl/stream_base.hpp>
@@ -51,7 +51,7 @@ meta::crt<boost::asio::awaitable<
                   boost::beast::error_code>>>
 prepare_stream(
     std::variant<boost::beast::tcp_stream, boost::asio::ssl::stream<boost::beast::tcp_stream>> stream,
-    boost::urls::url endpoint, boost::asio::any_io_executor executor) {
+    boost::urls::url endpoint, std::shared_ptr<DnsCache> dns_cache) {
     using rtype = std::expected<
         std::variant<boost::beast::tcp_stream, boost::asio::ssl::stream<boost::beast::tcp_stream>>,
         boost::beast::error_code>;
@@ -62,21 +62,17 @@ prepare_stream(
         },
         stream);
 
-    boost::asio::ip::tcp::resolver resolver{executor};
-    const std::string port_or_scheme =
-        endpoint.has_port() ? endpoint.port() : (endpoint.has_scheme() ? endpoint.scheme() : "https");
-
-    const auto [dns_ec, resolved_ep] =
-        co_await resolver.async_resolve(endpoint.host(), port_or_scheme, token);
-    if (dns_ec.failed()) {
-        co_return rtype{std::unexpect, dns_ec};
+    const auto maybe_resolved_eps = co_await dns_cache->get_endpoint();
+    if (!maybe_resolved_eps) {
+        co_return rtype{std::unexpect, maybe_resolved_eps.error()};
     }
+    const auto &resolved_eps = *maybe_resolved_eps;
 
     {
         const auto [con_ec, con_ep] = co_await std::visit(
             [&](auto &stream_) {
                 // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-                return boost::beast::get_lowest_layer(stream_).async_connect(resolved_ep, token);
+                return boost::beast::get_lowest_layer(stream_).async_connect(resolved_eps, token);
             },
             stream);
         if (con_ec.failed()) {

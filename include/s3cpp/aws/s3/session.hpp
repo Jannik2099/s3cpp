@@ -12,14 +12,20 @@
 #include <boost/beast/http/verb.hpp>
 #include <cstddef>
 #include <expected>
+#include <memory>
 #include <span>
 #include <string_view>
-#include <utility>
 
 //
 #include "s3cpp/internal/macro-begin.hpp"
 
 namespace s3cpp::aws::s3 {
+
+namespace _internal {
+
+class DnsCache;
+
+}
 
 class Session : private iam::Session {
 public:
@@ -28,6 +34,7 @@ public:
 
 private:
     mutable boost::asio::ssl::context ssl_ctx{boost::asio::ssl::context::tls_client};
+    std::shared_ptr<_internal::DnsCache> dns_cache_;
 
     [[nodiscard]] crt method_impl(boost::beast::http::verb method, std::string_view path,
                                   bool is_path_encoded, std::string_view query,
@@ -35,7 +42,7 @@ private:
                                   std::span<const std::byte> body [[clang::lifetimebound]]) const;
 
 public:
-    [[nodiscard]] Session(iam::Session session) : iam::Session{std::move(session)} {}
+    [[nodiscard]] Session(iam::Session session);
 
     [[nodiscard]] [[clang::coro_wrapper]] crt get(std::string_view path, std::string_view query = "",
                                                   boost::beast::http::fields headers = {},

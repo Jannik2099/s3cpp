@@ -3,7 +3,7 @@ project(
     'cpp',
     version: '0.1',
     default_options: ['warning_level=3', 'cpp_std=c++26'],
-    meson_version: '>=1.1',
+    meson_version: '>=1.7',
 )
 
 cmake = import('cmake')
@@ -35,6 +35,11 @@ botan_dep = dependency(
 )
 pugixml_dep = dependency(
     'pugixml',
+    include_type: 'system',
+    static: prefer_static,
+)
+libatomic_dep = dependency(
+    'atomic',
     include_type: 'system',
     static: prefer_static,
 )
