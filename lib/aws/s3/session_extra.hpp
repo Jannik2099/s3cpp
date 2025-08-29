@@ -1,3 +1,4 @@
+#include "dns_cache.hpp"
 #include "s3cpp/aws/iam/session.hpp"
 #include "s3cpp/meta.hpp"
 
@@ -16,6 +17,7 @@
 #include <boost/url/url.hpp>
 #include <cstddef>
 #include <expected>
+#include <memory>
 #include <variant>
 
 namespace s3cpp::aws::s3::_internal {
@@ -29,7 +31,7 @@ get_ssl_stream(bool is_ssl, boost::asio::any_io_executor executor, boost::asio::
 prepare_stream(
     std::variant<boost::beast::tcp_stream, boost::asio::ssl::stream<boost::beast::tcp_stream>> stream
     [[clang::lifetimebound]],
-    boost::urls::url endpoint, boost::asio::any_io_executor executor);
+    boost::urls::url endpoint, std::shared_ptr<DnsCache> dns_cache);
 
 [[nodiscard]]
 boost::beast::http::request<boost::beast::http::span_body<const std::byte>>
