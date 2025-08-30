@@ -12,8 +12,11 @@
 #include <boost/asio/as_tuple.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/ssl/context.hpp>
+#include <boost/asio/ssl/error.hpp>
+#include <boost/asio/ssl/host_name_verification.hpp>
 #include <boost/asio/ssl/stream.hpp>
 #include <boost/asio/ssl/stream_base.hpp>
+#include <boost/asio/ssl/verify_mode.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/beast/core/error.hpp>
 #include <boost/beast/core/tcp_stream.hpp>
@@ -27,6 +30,7 @@
 #include <cstddef>
 #include <expected>
 #include <memory>
+#include <openssl/err.h>
 #include <openssl/tls1.h>
 #include <string>
 #include <utility>
@@ -83,12 +87,31 @@ prepare_stream(
     {
         const bool is_ssl = stream.index() == 1;
         if (is_ssl) {
-            const auto ssl_sni_ec =
-                SSL_set_tlsext_host_name(std::get<1>(stream).native_handle(), endpoint.host_name().c_str());
-            if (ssl_sni_ec != 1) {
-                // TODO
-                co_return rtype{std::unexpect};
+            if (SSL_set_tlsext_host_name(std::get<1>(stream).native_handle(), endpoint.host_name().c_str()) !=
+                1) {
+                co_return rtype{std::unexpect,
+                                boost::beast::error_code{static_cast<int>(::ERR_get_error()),
+                                                         boost::asio::error::get_ssl_category()}};
             }
+            {
+                boost::beast::error_code ssl_verify_callback_ec;
+                ssl_verify_callback_ec = std::get<1>(stream).set_verify_callback(
+                    boost::asio::ssl::host_name_verification{endpoint.host_name()}, ssl_verify_callback_ec);
+                if (ssl_verify_callback_ec.failed()) {
+                    co_return rtype{std::unexpect, ssl_verify_callback_ec};
+                }
+            }
+            {
+                // not sure if we need to explicitly set this, the documentation is pretty shit
+                // better be safe than sorry
+                boost::beast::error_code ssl_verify_mode_ec;
+                ssl_verify_mode_ec =
+                    std::get<1>(stream).set_verify_mode(boost::asio::ssl::verify_peer, ssl_verify_mode_ec);
+                if (ssl_verify_mode_ec.failed()) {
+                    co_return rtype{std::unexpect, ssl_verify_mode_ec};
+                }
+            }
+
             const auto [shake_ec] =
                 co_await std::get<1>(stream).async_handshake(boost::asio::ssl::stream_base::client, token);
             if (shake_ec.failed()) {

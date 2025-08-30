@@ -109,6 +109,8 @@ Session::crt Session::get(std::string_view path, std::string_view query, boost::
 }
 
 Session::Session(iam::Session session)
-    : iam::Session{std::move(session)}, dns_cache_{std::make_shared<_internal::DnsCache>(this->endpoint)} {}
+    : iam::Session{std::move(session)}, dns_cache_{std::make_shared<_internal::DnsCache>(this->endpoint)} {
+    ssl_ctx.set_default_verify_paths();
+}
 
 } // namespace s3cpp::aws::s3
