@@ -92,25 +92,25 @@ list_one_impl(s3cpp::aws::s3::Client client, std::string bucket, std::optional<s
     };
     constexpr int max_retries = 5;
     for (int retries = 1; retries <= max_retries; retries++) {
+        std::string errstr;
         if constexpr (api_version == s3cpp::tools::list_all_objects::ListObjectsApiVersion::V1) {
             auto res = co_await client.list_objects(
                 {.Bucket = bucket, .Marker = continuation_token, .Delimiter = "/", .Prefix = prefix});
-            if (!res) {
-                const auto errstr = std::visit(Visitor{}, res.error());
-                std::println(std::cerr, "WARN in prefix {} {} - retry {}", my_prefix, errstr, retries);
+            if (res) {
+                co_return res.value();
             }
-            co_return res.value();
+            errstr = std::visit(Visitor{}, res.error());
         } else {
             auto res = co_await client.list_objects_v2({.Bucket = bucket,
                                                         .ContinuationToken = continuation_token,
                                                         .Delimiter = "/",
                                                         .Prefix = prefix});
-            if (!res) {
-                const auto errstr = std::visit(Visitor{}, res.error());
-                std::println(std::cerr, "WARN in prefix {} {} - retry {}", my_prefix, errstr, retries);
+            if (res) {
+                co_return res.value();
             }
-            co_return res.value();
+            errstr = std::visit(Visitor{}, res.error());
         }
+        std::println(std::cerr, "WARN in prefix {} {} - retry {}", my_prefix, errstr, retries);
         boost::asio::steady_timer timer{co_await boost::asio::this_coro::executor, std::chrono::seconds{1}};
         co_await timer.async_wait(boost::asio::use_awaitable);
     }
