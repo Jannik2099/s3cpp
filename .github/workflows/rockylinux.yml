@@ -39,7 +39,7 @@ jobs:
 
       - name: install build deps
         run: |
-          dnf -y install python3.12-pip gcc-toolset-14 gcc-toolset-14-libatomic-devel git cmake xz jq
+          dnf -y install python3.12-pip gcc-toolset-14 gcc-toolset-14-libatomic-devel git cmake xz jq openssl-devel
           pip3.12 install meson ninja
 
       - name: install ccache

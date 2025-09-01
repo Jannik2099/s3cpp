@@ -26,7 +26,7 @@ add_project_arguments(
 openssl_dep = dependency(
     'openssl',
     include_type: 'system',
-    static: prefer_static,
+    static: false,  # default certificate paths can be site-specific
 )
 botan_dep = dependency(
     'botan-3',
