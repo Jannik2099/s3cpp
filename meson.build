@@ -1,7 +1,7 @@
 project(
     's3cpp',
     'cpp',
-    version: '0.1',
+    version: files('version'),
     default_options: ['warning_level=3', 'cpp_std=c++26'],
     meson_version: '>=1.7',
 )
@@ -68,6 +68,7 @@ if not boost_dep.found()
     cmake_options.add_cmake_defines(
         {
             'BOOST_INCLUDE_LIBRARIES': ';'.join(boost_components),
+            'CMAKE_POSITION_INDEPENDENT_CODE': true
         },
     )
     cmake_options.append_compile_args('c', '-w')
@@ -89,9 +90,21 @@ if not boost_dep.found()
         dependencies: boost_cmake_libs,
     )
 endif
+meson.override_dependency('boost', boost_dep)
 
 subdir('include')
 subdir('lib')
-subdir('src')
+if get_option('tools')
+    subdir('src')
+endif
 
-subdir('test')
+if get_option('test')
+    subdir('test')
+endif
+
+if get_option('bindings').contains('python')
+    subproject(
+        'bindings-python',
+        default_options: ['test=' + get_option('test').to_string()],
+    )
+endif

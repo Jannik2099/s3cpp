@@ -20,3 +20,5 @@ self_dep = declare_dependency(
     include_directories: inc_self,
     dependencies: [boost_dep, pugixml_dep],
 )
+
+meson.override_dependency('s3cpp', self_dep)

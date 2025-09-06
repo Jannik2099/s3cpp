@@ -3,3 +3,18 @@ option(
     type: 'boolean',
     value: false,
 )
+option(
+    'bindings',
+    type: 'array',
+    choices: ['python'],
+)
+option(
+    'test',
+    type: 'boolean',
+    value: false,
+)
+option(
+    'tools',
+    type: 'boolean',
+    value: false,
+)
