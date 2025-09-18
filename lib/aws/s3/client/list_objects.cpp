@@ -1,6 +1,5 @@
-#include "s3cpp/aws/s3/client.hpp"
-
 #include "s3cpp/aws/iam/urlencode.hpp"
+#include "s3cpp/aws/s3/client.hpp"
 #include "s3cpp/aws/s3/types.hpp"
 #include "s3cpp/meta.hpp"
 
