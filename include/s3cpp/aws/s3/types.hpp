@@ -109,6 +109,22 @@ BOOST_DESCRIBE_STRUCT(ListObjectsV2Result, (),
                       (CommonPrefixes, Contents, ContinuationToken, Delimiter, EncodingType, IsTruncated,
                        KeyCount, MaxKeys, Name, NextContinuationToken, Prefix, StartAfter));
 
+struct Bucket {
+    std::optional<std::string> BucketArn;
+    std::optional<std::string> BucketRegion;
+    std::optional<std::chrono::time_point<std::chrono::system_clock>> CreationDate;
+    std::optional<std::string> Name;
+};
+BOOST_DESCRIBE_STRUCT(Bucket, (), (BucketArn, BucketRegion, CreationDate, Name));
+
+struct ListAllMyBucketsResult {
+    std::vector<Bucket> Buckets;
+    Owner Owner_;
+    std::optional<std::string> ContinuationToken;
+    std::optional<std::string> Prefix;
+};
+BOOST_DESCRIBE_STRUCT(ListAllMyBucketsResult, (), (Buckets, Owner_, ContinuationToken, Prefix));
+
 } // namespace s3cpp::aws::s3
 
 //

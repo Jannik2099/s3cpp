@@ -46,6 +46,14 @@ BOOST_DESCRIBE_STRUCT(ListObjectsV2Parameters, (),
                       (Bucket, ContinuationToken, Delimiter, EncodingType, FetchOwner, MaxKeys, Prefix,
                        StartAfter));
 
+struct ListBucketsParameters {
+    std::optional<std::string> BucketRegion;
+    std::optional<std::string> ContinuationToken;
+    std::size_t MaxBuckets = 10000;
+    std::optional<std::string> Prefix;
+};
+BOOST_DESCRIBE_STRUCT(ListBucketsParameters, (), (BucketRegion, ContinuationToken, MaxBuckets, Prefix));
+
 class Client {
 private:
     std::shared_ptr<Session> session_;
@@ -62,6 +70,10 @@ public:
     [[nodiscard]] meta::crt<boost::asio::awaitable<
         std::expected<ListObjectsV2Result, std::variant<boost::beast::error_code, pugi::xml_parse_status>>>>
     list_objects_v2(ListObjectsV2Parameters parameters, boost::beast::http::fields headers = {}) const;
+
+    [[nodiscard]] meta::crt<boost::asio::awaitable<std::expected<
+        ListAllMyBucketsResult, std::variant<boost::beast::error_code, pugi::xml_parse_status>>>>
+    list_buckets(ListBucketsParameters parameters, boost::beast::http::fields headers = {}) const;
 };
 
 } // namespace s3cpp::aws::s3
