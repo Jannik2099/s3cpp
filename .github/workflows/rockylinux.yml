@@ -15,7 +15,7 @@ jobs:
   build:
     name: Rocky Linux
     runs-on: ubuntu-latest
-    container: docker.io/rockylinux/rockylinux:8
+    container: docker.io/rockylinux/rockylinux:9
 
     env:
       PKG_CONFIG_PATH: /usr/local/lib/pkgconfig
