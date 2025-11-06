@@ -82,8 +82,11 @@ WorkerManager::WorkerManager(s3cpp::aws::s3::Client client, std::string bucket,
     : client{std::move(client)}, bucket{std::move(bucket)}, metrics{std::move(metrics)},
       pool{std::move(pool)}, config{config}, api_version{api_version}, output_format{output_format} {
     // Initialize the shared queue with the root prefix (empty prefix)
-    shared_prefix_queue->emplace(PrefixQueueEntry{.depth = 0, .paths = {{}}});
-    this->metrics->total_queue_length++;
+    {
+        const std::scoped_lock lock{*shared_queue_mutex};
+        shared_prefix_queue->emplace(PrefixQueueEntry{.depth = 0, .paths = {{}}});
+        this->metrics->total_queue_length++;
+    }
     this->metrics->target_workers = std::max(this->metrics->target_workers.load(), 1UL);
 
     boost::asio::co_spawn(*this->pool, scaling_worker(scaling_cancellation_signal->slot()),
@@ -94,12 +97,38 @@ WorkerManager::WorkerManager(s3cpp::aws::s3::Client client, std::string bucket,
         boost::asio::detached);
 }
 
+// clang-tidy probably gets caught on the print logic?
+// NOLINTNEXTLINE(bugprone-exception-escape)
 WorkerManager::~WorkerManager() {
     // Wait for all work to complete
     while (true) {
         {
             const std::scoped_lock lock{*shared_queue_mutex};
-            if (shared_prefix_queue->empty() && metrics->active_workers == 0) {
+
+            // Clean up empty entries like workers do in get_next_prefix()
+            while (!shared_prefix_queue->empty()) {
+                const auto &entry = shared_prefix_queue->top();
+                if (entry.paths.empty()) {
+                    shared_prefix_queue->pop();
+                } else {
+                    break;
+                }
+            }
+
+            if (metrics->total_queue_length == 0 && metrics->active_workers == 0) {
+                // After cleanup, queue should be empty
+                if (!shared_prefix_queue->empty()) {
+                    std::print(std::cerr,
+                               "ERROR: prefix queue not empty but no active workers and zero queue length\n"
+                               "remaining prefixes:\n");
+                    while (!shared_prefix_queue->empty()) {
+                        const auto &entry = shared_prefix_queue->top();
+                        for (const auto &elem : entry.paths) {
+                            std::print(std::cerr, "  prefix: {}\n", elem.Prefix.value_or("<empty>"));
+                        }
+                        shared_prefix_queue->pop();
+                    }
+                }
                 break;
             }
         }
