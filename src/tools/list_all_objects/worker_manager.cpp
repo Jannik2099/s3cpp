@@ -200,15 +200,21 @@ std::size_t WorkerManager::calculate_desired_workers(double current_ops_per_seco
     if (static_cast<double>(current_workers) < current_ops_per_second) {
         desired_workers = std::ceil(
             std::max(static_cast<double>(current_workers) * config.scale_up_factor, current_ops_per_second));
-        std::println("Scaling up: {} workers < {:.2f} ops/s, {} -> {} workers", current_workers,
-                     current_ops_per_second, current_workers, desired_workers);
+        // this gets too verbose towards narrow sections where workers only emit one new item
+        if (metrics->total_queue_length > 0) {
+            std::println("Scaling up: {} workers < {:.2f} ops/s, {} -> {} workers", current_workers,
+                         current_ops_per_second, current_workers, desired_workers);
+        }
     }
     // Scale down if we have significantly more workers than ops/second (workers are over-provisioned)
     else if (static_cast<double>(current_workers) > current_ops_per_second * 1.5) {
         desired_workers = std::ceil(std::max(static_cast<double>(current_workers) * config.scale_down_factor,
                                              current_ops_per_second));
-        std::println("Scaling down: {} workers > {:.2f} ops/s * 1.5, {} -> {} workers", current_workers,
-                     current_ops_per_second, current_workers, desired_workers);
+        // this gets too verbose towards narrow sections where workers only emit one new item
+        if (metrics->total_queue_length > 0) {
+            std::println("Scaling down: {} workers > {:.2f} ops/s * 1.5, {} -> {} workers", current_workers,
+                         current_ops_per_second, current_workers, desired_workers);
+        }
     }
 
     // Always keep at least one worker. We have other logic that relies on active_workers > 0 to detect
