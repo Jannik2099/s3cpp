@@ -167,6 +167,16 @@ WorkerManager::scaling_worker(boost::asio::cancellation_slot cancellation_slot) 
         ops_accumulator(new_ops);
         const double current_ops_per_second = rolling_mean(ops_accumulator);
 
+        if (metrics->total_queue_length == 0) {
+            // Nothing left waiting in the queue,
+            // so keep the target aligned with the currently active
+            // workers and skip spawning new ones.
+            // This prevents the shutdown loop from being kept alive by
+            // freshly spawned workers when all work is already done.
+            metrics->target_workers = metrics->active_workers.load();
+            continue;
+        }
+
         const std::size_t desired_workers = calculate_desired_workers(current_ops_per_second);
         const std::size_t current_target = metrics->target_workers;
 
